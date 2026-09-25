@@ -30,7 +30,7 @@ jobs:
         run: |
           cmake -S native -B native/build -A x64
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
-          cmake --build native/build --config Release --target engine_test ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
+          cmake --build native/build --config Release --target engine_test debug_dump ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
   installer-preview:
     if: github.event_name != 'pull_request'
@@ -50,15 +50,17 @@ jobs:
         run: |
           cmake -S native -B native/build -A x64
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
-          cmake --build native/build --config Release --target engine_test quality_typo_long release_test ime_mixed_tip ime_engine_host ime_dictionary_tool ime_settings ime_tray ime_profile_control e2e_tip_tests tip_com_smoke
+          cmake --build native/build --config Release --target engine_test debug_dump quality_typo_long release_test ime_mixed_tip ime_engine_host ime_dictionary_tool ime_settings ime_tray ime_profile_control e2e_tip_tests tip_com_smoke
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
           & scripts/stage_engine.ps1 -Destination native/build/e2e_out_v11/engine
+          & scripts/ci/stage_test_runtime.ps1
           & native/build/Release/engine_test.exe
           if ($LASTEXITCODE -ne 0) { throw 'engine_test failed' }
           & native/build/Release/quality_typo_long.exe
           if ($LASTEXITCODE -ne 0) { throw 'quality_typo_long failed' }
           & native/build/Release/release_test.exe
           if ($LASTEXITCODE -ne 0) { throw 'release_test failed' }
+          & scripts/capture_engine_demo.ps1
           & native/build/e2e_out_v11/tip_com_smoke.exe
           if ($LASTEXITCODE -ne 0) { throw 'TIP COM smoke failed' }
       - name: Create validated package

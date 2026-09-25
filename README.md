@@ -6,7 +6,14 @@
 
 <img src="docs/assets/readme/yomitsugu-showcase-hero-v2.png" alt="Yomitsugu のタイトルと、端末を持つキャラクター。" width="100%">
 
-Windows 11 x64 · 0.2.7-preview · 変換はローカル
+<p>
+  <img alt="Status: preview" src="https://img.shields.io/badge/status-preview-7c3aed?style=for-the-badge">
+  <img alt="Windows x64" src="https://img.shields.io/badge/platform-Windows%20x64-334155?style=for-the-badge">
+  <img alt="Local conversion" src="https://img.shields.io/badge/conversion-local-0f766e?style=for-the-badge">
+  <a href="LICENSE"><img alt="License: MIT for original code" src="https://img.shields.io/badge/code-MIT-0f766e?style=for-the-badge"></a>
+</p>
+
+**[動いているところ](#動いているところ)** · **[何ができるか](#何ができるか)** · **[インストール](#インストール)** · **[現在の範囲](#現在の範囲)** · **[ライセンス](#ライセンス)**
 
 </div>
 
@@ -14,15 +21,17 @@ Windows 11 x64 · 0.2.7-preview · 変換はローカル
 
 <picture>
   <source media="(prefers-reduced-motion: reduce)" srcset="docs/assets/readme/input-demo-still.png">
-  <img src="docs/assets/readme/input-demo.gif" alt="実際の入力テスト記録から、入力したローマ字と変換候補を大きく並べたアニメーション。寒くなってきましたね、READMEを更新してくださいGithubでの例。" width="800">
+  <img src="docs/assets/readme/input-demo.gif" alt="入力したローマ字と変換候補を大きく並べたアニメーション。今日はいい天気ですね。とAPIを確認してください。の例。" width="800">
 </picture>
 
-Windows の Rich Edit で実際の TIP を動かした入力ログから、読みやすい時点を抜粋して並べました。候補は入力中に更新されます。Chrome や Office での動作を示す映像ではありません。
+変換エンジンの実測候補から、読みやすい時点を抜粋して並べました。入力中に候補がどう変わるかを示す図解です。アプリ画面の録画や Chrome・Office での動作を示す映像ではありません。
 
 ## 何ができるか
 
 | 入力 | 変換例 |
 | --- | --- |
+| `kyouhaiitennkidesune.` | 今日はいい天気ですね。 |
+| `APIwokakuninshitekudasai.` | APIを確認してください。 |
 | `samukunaltutekimasitane` | 寒くなってきましたね |
 | `ri-domi-` | README |
 | `ri-domi-wokousinnsitekudasaiGithubde` | READMEを更新してくださいGithubで |

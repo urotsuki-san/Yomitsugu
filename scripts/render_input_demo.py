@@ -1,7 +1,8 @@
-"""Render a readable README animation from a captured TIP E2E event log.
+"""Render a readable README animation from a native engine candidate log.
 
-The source log is produced by e2e_tip_tests --demo. Each displayed candidate is
-checked against a recorded frame; the animation omits transient frames for legibility.
+The source log is produced by debug_dump --readme-demo without desktop input.
+Each displayed candidate is checked against a real engine result. The animation
+omits transient frames for legibility.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = ROOT / "audit/2026-09-26/readme-demo/demo.out.txt"
+LOG = ROOT / "audit/2026-09-26/readme-demo/engine-demo.out.txt"
 ASSETS = ROOT / "docs/assets/readme"
 SIZE = (1000, 510)
 
@@ -33,8 +34,8 @@ def font(path: Path, size: int) -> ImageFont.FreeTypeFont:
 
 def events() -> dict[tuple[int, str], str]:
     raw = LOG.read_text(encoding="utf-8-sig")
-    if raw.count("DEMO PASS") != 3 or "DEMO FAIL" in raw:
-        raise ValueError("All three live TIP demo cases must pass before rendering")
+    if raw.count("DEMO PASS") != 2 or "DEMO FAIL" in raw:
+        raise ValueError("Both native-engine demo cases must pass before rendering")
     result: dict[tuple[int, str], str] = {}
     for line in raw.splitlines():
         if not line.startswith("DEMO_FRAME\t"):
@@ -87,7 +88,7 @@ def render(case: int, typed: str, candidate: str, *, complete: bool, step: int, 
         d.rounded_rectangle((851, 278, 959, 308), radius=12, fill="#233e39")
         d.text((865, 281), "Enter  確定", font=font(JP_FONT, 15), fill=CYAN)
 
-    d.text((42, 460), "実際の TIP 入力ログから抜粋  ·  Rich Edit", font=font(JP_FONT, 17), fill=MUTED)
+    d.text((42, 460), "変換エンジンの実測候補から抜粋", font=font(JP_FONT, 17), fill=MUTED)
     d.text((816, 460), f"{step:02d} / {total:02d}", font=font(LATIN_FONT, 18), fill=AMBER)
     return image
 
@@ -95,24 +96,27 @@ def render(case: int, typed: str, candidate: str, *, complete: bool, step: int, 
 def main():
     log = events()
     first = [
-        ("samuku", "寒く"),
-        ("samukuna", "寒くな"),
-        ("samukunaltu", "寒くなっ"),
-        ("samukunaltute", "寒くなって"),
-        ("samukunaltuteki", "寒くなってき"),
-        ("samukunaltutekima", "寒くなってきま"),
-        ("samukunaltutekimasi", "寒くなってきまし"),
-        ("samukunaltutekimasita", "寒くなってきました"),
-        ("samukunaltutekimasitane", "寒くなってきましたね"),
+        ("kyou", "今日"),
+        ("kyouha", "今日は"),
+        ("kyouhaii", "今日はいい"),
+        ("kyouhaiitennki", "今日はいい天気"),
+        ("kyouhaiitennkide", "今日はいい天気で"),
+        ("kyouhaiitennkidesu", "今日はいい天気です"),
+        ("kyouhaiitennkidesune", "今日はいい天気ですね"),
+        ("kyouhaiitennkidesune.", "今日はいい天気ですね。"),
     ]
     second = [
-        ("ri-domi-", "README"),
-        ("ri-domi-wok", "READMEを"),
-        ("ri-domi-wokousinnsitekudasaiGithub", "READMEを更新してくださいGithub"),
-        ("ri-domi-wokousinnsitekudasaiGithubde", "READMEを更新してくださいGithubで"),
+        ("API", "API"),
+        ("APIwo", "APIを"),
+        ("APIwokakunin", "APIを確認"),
+        ("APIwokakuninshi", "APIを確認し"),
+        ("APIwokakuninshite", "APIを確認して"),
+        ("APIwokakuninshitekuda", "APIを確認してくだ"),
+        ("APIwokakuninshitekudasai", "APIを確認してください"),
+        ("APIwokakuninshitekudasai.", "APIを確認してください。"),
     ]
-    frames = []
-    durations = []
+    keyframes = []
+    keyframe_durations = []
     total = len(first) + len(second)
     step = 0
     still = None
@@ -122,11 +126,24 @@ def main():
             exact(log, case, typed, candidate)
             complete = index == len(series) - 1
             frame = render(case, typed, candidate, complete=complete, step=step, total=total)
-            frames.append(frame)
-            durations.append(1700 if complete else (700 if case == 1 else 850))
+            keyframes.append(frame)
+            keyframe_durations.append(1250 if complete else 210)
             if case == 2 and complete:
                 still = frame
     assert still is not None
+    frames = []
+    durations = []
+    for index, frame in enumerate(keyframes):
+        frames.append(frame)
+        durations.append(keyframe_durations[index])
+        if index + 1 == len(keyframes):
+            continue
+        following = keyframes[index + 1]
+        # Short dissolves keep the selected, real E2E states legible while
+        # avoiding the stop-motion appearance of one long still per keystroke.
+        for fraction in (0.25, 0.5, 0.75):
+            frames.append(Image.blend(frame, following, fraction))
+            durations.append(55)
     ASSETS.mkdir(parents=True, exist_ok=True)
     still.save(ASSETS / "input-demo-still.png", optimize=True)
     frames[0].save(
@@ -138,7 +155,7 @@ def main():
         optimize=True,
         disposal=2,
     )
-    print(f"Rendered {len(frames)} recorded TIP states to {ASSETS / 'input-demo.gif'}")
+    print(f"Rendered {len(frames)} frames from {len(keyframes)} recorded engine states")
 
 
 if __name__ == "__main__":

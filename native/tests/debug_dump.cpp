@@ -1,5 +1,6 @@
 #include "ime_engine.h"
 #include <cstdio>
+#include <cstring>
 #include <string>
 
 using namespace ime;
@@ -24,7 +25,41 @@ static void Dump(const char* name, const std::string& raw, const char* phase, bo
   std::printf("  romaji_ok=%d kana=%s\n", ok ? 1 : 0, kana.c_str());
 }
 
-int main() {
+static bool ReadmeDemo() {
+  struct DemoCase { int id; const char* raw; const char* expected; };
+  const DemoCase cases[] = {
+      {1, "kyouhaiitennkidesune.", u8"今日はいい天気ですね。"},
+      {2, "APIwokakuninshitekudasai.", u8"APIを確認してください。"},
+  };
+  if (!AzookeyEnsureReady()) {
+    std::puts("DEMO FAIL: AzooKey runtime missing");
+    return false;
+  }
+  bool all_ok = true;
+  for (const auto& c : cases) {
+    std::string final;
+    const std::string raw = c.raw;
+    for (size_t count = 1; count <= raw.size(); ++count) {
+      DecodeInput in;
+      in.raw_text = raw.substr(0, count);
+      in.phase = "end_of_phrase";
+      in.field = "prose";
+      in.candidate_limit = 1;
+      auto candidates = Decode(in);
+      const std::string top = candidates.empty() ? "" : candidates[0].output_text;
+      std::printf("DEMO_FRAME\t%d\ttyping\t%s\t%s\n", c.id, in.raw_text.c_str(), top.c_str());
+      if (count == raw.size()) final = top;
+    }
+    const bool passed = final == c.expected;
+    std::printf("DEMO %s %d\n", passed ? "PASS" : "FAIL", c.id);
+    all_ok = all_ok && passed;
+  }
+  return all_ok;
+}
+
+int main(int argc, char** argv) {
+  if (argc == 2 && std::strcmp(argv[1], "--readme-demo") == 0)
+    return ReadmeDemo() ? 0 : 1;
   Dump("U01", "Githubnoripojitoriwokousinnsitekudasai", "sentence_end", true);
   Dump("U01-ja", "noripojitoriwokousinnsitekudasai", "end_of_phrase", false);
   Dump("U02", "konnitiwa", "sentence_end", true);
