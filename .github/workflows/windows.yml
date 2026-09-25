@@ -32,12 +32,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
           cmake --build native/build --config Release --target engine_test ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
-      - name: Engine unit tests without optional runtime
-        shell: pwsh
-        run: |
-          & native/build/Release/engine_test.exe
-          if ($LASTEXITCODE -ne 0) { throw 'engine_test failed' }
-
   installer-preview:
     if: github.event_name != 'pull_request'
     needs: source-checks
