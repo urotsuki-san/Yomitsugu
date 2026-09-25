@@ -14,6 +14,8 @@
   <a href="LICENSE"><img alt="License: MIT for original code" src="https://img.shields.io/badge/code-MIT-0f766e?style=for-the-badge"></a>
 </p>
 
+**[Windows 版をダウンロード（0.2.7 Preview）](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.7-preview.1/Yomitsugu-0.2.7-preview-x64-setup.exe)**
+
 **[動いているところ](#動いているところ)** · **[何ができるか](#何ができるか)** · **[アーキテクチャ](#アーキテクチャ)** · **[インストール](#インストール)** · **[現在の範囲](#現在の範囲)** · **[ライセンス](#ライセンス)**
 
 </div>
@@ -60,7 +62,11 @@ TIP は入力先アプリ内で動き、変換処理は専用プロセスへ渡�
 
 ## インストール
 
-現在は**評価版**です。[Windows CI](https://github.com/urotsuki-san/Yomitsugu/actions/workflows/windows.yml) の成功した実行を開き、ページ下部の「Artifacts」から `yomitsugu-0.2.7-preview-installer` をダウンロードしてください。ZIP 内の `Yomitsugu-0.2.7-preview-x64-setup.exe` がインストーラーです。成果物は7日で失効します。インストーラーは未署名で、管理者権限が必要です。通常のリリース欄には、まだバイナリを置いていません。
+現在は**評価版**です。
+
+1. [Windows 用インストーラーをダウンロード](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.7-preview.1/Yomitsugu-0.2.7-preview-x64-setup.exe)します。
+2. ダウンロードした `.exe` を実行し、画面の案内に従います。管理者権限が必要です。未署名のため、Windows が警告を表示する場合があります。
+3. インストール後、`Win` + `Space` で Yomitsugu を選びます。
 
 インストール後、Windows の入力切替で Yomitsugu を選びます。通知領域のアイコン（隠れている場合は `^` の中）から設定と辞書を開けます。標準の「あ」インジケーターへの表示は環境によって異なります。アンインストールは Windows の「インストールされているアプリ」から行えます。ユーザー辞書は削除しません。
 

@@ -66,6 +66,8 @@ UTF-8（BOMあり／なし）のTSV。Google日本語入力／Mozc形式の「�
 
 `scripts/package_release.ps1` で `dist/yomitsugu-0.2.7-preview` を生成します。DLL／実行ファイル、専用エンジン、辞書、モデル、依存ライセンス、SHA-256一覧をまとめます。ZIPの横に同名の `.zip.sha256` を置きます。パッケージ生成は既存フォルダを上書きせず失敗します。`scripts/build_installer.ps1` は検証済みパッケージから Inno Setup の `Yomitsugu-0.2.7-preview-x64-setup.exe` を作ります。GitHub Actions は `main` 更新時と手動実行時に同じ工程を実行し、インストール・削除のスモーク試験後に `yomitsugu-0.2.7-preview-installer` を7日間保存します。
 
+利用者向けの評価版は [GitHub Releases の 0.2.7 Preview](https://github.com/urotsuki-san/Yomitsugu/releases/tag/v0.2.7-preview.1) に置きます。インストーラーを直接ダウンロードでき、同じ画面にSHA-256と注意点を記載しています。`public_release_ready=false` は安定版としての一般配布条件が未達という意味です。
+
 評価用インストーラーは管理者権限で起動し、64bit Windows にインストールします。DLLの登録、スタートメニュー項目、通知領域アイコンのログイン起動を設定し、Windows の「インストールされているアプリ」からアンインストールできます。既定IMEと個人辞書は変更しません。旧PowerShell版を使用中なら先に旧版の `uninstall_preview.ps1` で登録解除し、サインアウトしてからインストーラーを実行してください。未署名なので Windows が警告を表示する場合があります。
 
 以下は ZIP 版を手動で登録する開発用手順です。こちらの通常インストールスクリプトは公開判定と署名を検証します。本版は `public_release_ready=false` なので、開発評価を行う場合だけ、**管理者として開いた64bit PowerShell**で配布フォルダに移動し、次を実行してください。PowerShellではカレントディレクトリのスクリプトに `./` または `.\` を付ける必要があります。
