@@ -1,0 +1,30 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Yomitsugu の入力経路",
+    "quality_profile": "showcase",
+    "viewBox": [1100, 640]
+  },
+  "components": [
+    { "id": "windowsApp", "type": "external", "label": "Windows アプリ", "sublabel": "入力先", "pos": [45, 270], "size": [155, 76] },
+    { "id": "tsfTip", "type": "frontend", "label": "TSF TIP", "sublabel": "キー入力と即時プレビュー", "pos": [268, 270], "size": [185, 76] },
+    { "id": "engineHost", "type": "backend", "label": "専用エンジン", "sublabel": "ime_engine_host.exe", "pos": [538, 270], "size": [205, 76] },
+    { "id": "azookeyModel", "type": "backend", "label": "AzooKey / Zenzai", "sublabel": "辞書検索とローカル推論", "pos": [836, 270], "size": [218, 76] },
+    { "id": "candidateUi", "type": "frontend", "label": "候補ウィンドウ", "sublabel": "選択・確定", "pos": [268, 86], "size": [185, 76] },
+    { "id": "settingsTray", "type": "frontend", "label": "設定・通知領域", "sublabel": "辞書の登録と更新", "pos": [538, 464], "size": [205, 76] },
+    { "id": "localDictionaries", "type": "database", "label": "ローカル辞書", "sublabel": "公開辞書とユーザー辞書", "pos": [836, 464], "size": [218, 76] }
+  ],
+  "connections": [
+    { "id": "appToTip", "from": "windowsApp", "to": "tsfTip", "label": "TSF キー入力" },
+    { "id": "tipToHost", "from": "tsfTip", "to": "engineHost", "label": "非同期 IPC" },
+    { "id": "hostToAzookey", "from": "engineHost", "to": "azookeyModel" },
+    { "id": "tipToCandidates", "from": "tsfTip", "to": "candidateUi", "label": "候補を表示" },
+    { "id": "hostToDictionary", "from": "engineHost", "to": "localDictionaries", "label": "候補を検索" },
+    { "id": "settingsToDictionary", "from": "settingsTray", "to": "localDictionaries", "label": "登録・更新", "labelAt": [710, 554] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "入力中", "items": ["TIP は入力先アプリで動作", "候補計算は別プロセスへ渡す"] },
+    { "dot": "amber", "title": "辞書", "items": ["入力文と個人辞書は送信しない", "公開辞書の更新時だけ公開データを取得"] }
+  ]
+}

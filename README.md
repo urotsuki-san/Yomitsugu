@@ -7,15 +7,18 @@
 <img src="docs/assets/readme/yomitsugu-showcase-hero-v2.png" alt="Yomitsugu のタイトルと、端末を持つキャラクター。" width="100%">
 
 <p>
-  <img alt="Status: preview" src="https://img.shields.io/badge/status-preview-7c3aed?style=for-the-badge">
+  <img alt="Version 0.2.7 preview" src="https://img.shields.io/badge/version-0.2.7%20preview-7c3aed?style=for-the-badge">
   <img alt="Windows x64" src="https://img.shields.io/badge/platform-Windows%20x64-334155?style=for-the-badge">
   <img alt="Local conversion" src="https://img.shields.io/badge/conversion-local-0f766e?style=for-the-badge">
+  <a href="https://github.com/urotsuki-san/Yomitsugu/actions/workflows/windows.yml"><img alt="Windows CI" src="https://img.shields.io/github/actions/workflow/status/urotsuki-san/Yomitsugu/windows.yml?branch=main&style=for-the-badge&label=CI"></a>
   <a href="LICENSE"><img alt="License: MIT for original code" src="https://img.shields.io/badge/code-MIT-0f766e?style=for-the-badge"></a>
 </p>
 
-**[動いているところ](#動いているところ)** · **[何ができるか](#何ができるか)** · **[インストール](#インストール)** · **[現在の範囲](#現在の範囲)** · **[ライセンス](#ライセンス)**
+**[動いているところ](#動いているところ)** · **[何ができるか](#何ができるか)** · **[アーキテクチャ](#アーキテクチャ)** · **[インストール](#インストール)** · **[現在の範囲](#現在の範囲)** · **[ライセンス](#ライセンス)**
 
 </div>
+
+---
 
 ## 動いているところ
 
@@ -40,6 +43,20 @@
 | `ltu` / `a` / `.` | っ / あ / 。 |
 
 英語と日本語の境目を探し、かな漢字変換には AzooKey の辞書と Zenzai のローカルモデルを使います。ユーザー辞書の登録・編集・TSV取り込み、記号を含む公開辞書の更新は設定画面から行えます。辞書更新で取得するのは公開データだけです。入力文と個人辞書は送信しません。
+
+## アーキテクチャ
+
+```mermaid
+flowchart LR
+    A["Windows アプリ<br/>入力先"] -->|キー入力| B["Windows TSF / TIP<br/>ローマ字と候補の表示"]
+    B -->|候補を表示| C["候補ウィンドウ"]
+    B -->|非同期 IPC| D["専用エンジン<br/>ime_engine_host.exe"]
+    D --> E["AzooKey 辞書 / Zenzai モデル<br/>ローカル変換"]
+    D --> F["公開辞書 / ユーザー辞書<br/>ローカル保存"]
+    G["設定・通知領域"] -->|登録・更新| F
+```
+
+TIP は入力先アプリ内で動き、変換処理は専用プロセスへ渡します。公開辞書の更新時だけ公開データを取得します。[拡大・経路表示ができる詳細図](docs/architecture/yomitsugu.html) もあります（HTML をダウンロードして開いてください）。
 
 ## インストール
 
