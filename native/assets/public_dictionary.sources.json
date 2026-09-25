@@ -1,0 +1,15 @@
+{
+  "source_urls": {
+    "mozc_symbols": "https://raw.githubusercontent.com/google/mozc/master/src/data/symbol/symbol.tsv",
+    "edrdg_edict2": "https://www.edrdg.org/pub/Nihongo/edict2.gz"
+  },
+  "source_sha256": {
+    "mozc_symbols": "bc68b032a195f203dccba6f95667424199ba9b185fee2be64eeaa959253c097a",
+    "edrdg_edict2": "d86d7b5889266411b4e3a7edc8f72b6193e5a8639c73fc91c5056edf84216344"
+  },
+  "output_sha256": "7e585a59070438a9820a67d9be6a4cf39641042bcd552bb7334f4016795afaa2",
+  "readings": 2062,
+  "symbols": 3161,
+  "computing_terms": 750,
+  "entries": 3911
+}

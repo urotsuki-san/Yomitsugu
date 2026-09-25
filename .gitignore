@@ -1,0 +1,31 @@
+# Local development and installed-package artifacts
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.obj
+*.pdb
+*.ilk
+*.log
+*.err
+native/build/
+upstream/
+dist/
+audit/
+
+# Internal handoff and exploratory scripts/results
+AGENTS.md
+CLAUDE.md
+HANDOFF.md
+publication_inventory.ps1
+unreg_log.txt
+System.Text.UTF8Encoding
+native/scripts/*
+scripts/*
+
+# Exploratory icon drafts; only the selected files are tracked explicitly
+native/assets/yomitsugu-preview.png
+native/assets/yomitsugu-size-review.png
+native/assets/yomitsugu-icon.svg
+native/assets/generated-composite-preview.png
+docs/assets/readme/yomitsugu-showcase-hero-v1.png
