@@ -41,7 +41,7 @@ powershell -NoProfile -File scripts/check_release.ps1 -Mode release
 powershell -NoProfile -File scripts/check_release.ps1 -Mode python
 ```
 
-`release_test` は実辞書がなければ失敗します。`engine_test` 単独の辞書欠落時soft-skipを配布判定に使いません。0.2.7のエンジン変更後に `engine_test` ALL PASSED、品質46/46、`release_test` 105/105、pytest 11/11、Python受入32/32を確認しました。0.2.6の実測では通知領域アイコンのOS登録とクリックによる設定画面起動も確認しました。テスト用依存DLL／モデル／bundleの準備は既存HANDOFFのビルド環境に依存します。Swiftビルド環境を含めたクリーンPCでの完全再現は未検証です。
+`release_test` は実辞書がなければ失敗します。`engine_test` 単独の辞書欠落時soft-skipを配布判定に使いません。0.2.7のエンジン変更後に `engine_test` ALL PASSED、品質46/46、`release_test` 105/105、pytest 11/11、Python受入32/32を確認しました。0.2.6の実測では通知領域アイコンのOS登録とクリックによる設定画面起動も確認しました。[Windows CI 実行 36160191219](https://github.com/urotsuki-san/Yomitsugu/actions/runs/36160191219) では、Windows 2022ランナー上でSwiftを含む依存ランタイムからビルドし、同じ品質試験と配布パッケージ検証を通しました。利用者のクリーンPCでの実動作は未検証です。
 
 E2Eは通常の `ctest` には含めません。`scripts/stage_engine.ps1 -Destination native/build/e2e_out_v11/engine` → `scripts/e2e_preflight.ps1` → `native/scripts/clear_dbg.ps1` → `native/scripts/e2e_run.ps1`（UAC1回）。エンジンの配置は入力先アプリではなくTIPの隣の `engine` 内です。0.2.7（v11）の単一Rich Editホスト実機E2Eは32成功・0失敗で、長文英日混在と `sannkai` を含みます。終了後も既定の日本語IMEがGoogleのままであることをTSF APIで確認しました。ChromeやOfficeでの互換性試験ではありません。
 
@@ -64,7 +64,7 @@ UTF-8（BOMあり／なし）のTSV。Google日本語入力／Mozc形式の「�
 
 ## 配布フォルダとインストール
 
-`scripts/package_release.ps1` で `dist/yomitsugu-0.2.7-preview` を生成します。DLL／実行ファイル、専用エンジン、辞書、モデル、依存ライセンス、SHA-256一覧をまとめます。ZIPの横に同名の `.zip.sha256` を置きます。パッケージ生成は既存フォルダを上書きせず失敗します。`scripts/build_installer.ps1` は検証済みパッケージから Inno Setup の `Yomitsugu-0.2.7-preview-x64-setup.exe` を作ります。GitHub Actions の手動実行 `installer-preview` でも同じ工程を実行します。
+`scripts/package_release.ps1` で `dist/yomitsugu-0.2.7-preview` を生成します。DLL／実行ファイル、専用エンジン、辞書、モデル、依存ライセンス、SHA-256一覧をまとめます。ZIPの横に同名の `.zip.sha256` を置きます。パッケージ生成は既存フォルダを上書きせず失敗します。`scripts/build_installer.ps1` は検証済みパッケージから Inno Setup の `Yomitsugu-0.2.7-preview-x64-setup.exe` を作ります。GitHub Actions は `main` 更新時と手動実行時に同じ工程を実行し、インストール・削除のスモーク試験後に `yomitsugu-0.2.7-preview-installer` を7日間保存します。
 
 評価用インストーラーは管理者権限で起動し、64bit Windows にインストールします。DLLの登録、スタートメニュー項目、通知領域アイコンのログイン起動を設定し、Windows の「インストールされているアプリ」からアンインストールできます。既定IMEと個人辞書は変更しません。旧PowerShell版を使用中なら先に旧版の `uninstall_preview.ps1` で登録解除し、サインアウトしてからインストーラーを実行してください。未署名なので Windows が警告を表示する場合があります。
 
@@ -95,7 +95,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\update_public_dictionary.p
 3. UI Automationの正式な候補UI契約、スクリーンリーダー、複数DPI、タッチでの実測。
 4. パスワード・PIN・入力禁止の実アプリ検証、TSFの編集拒否／フォーカス競合の注入試験、結合文字／絵文字クラスタの編集試験。
 5. 複数アプリでのエンジン常駐メモリと起動時間、共有サービス化の評価。現在はTIPインスタンス単位の子プロセス。
-6. 別ユーザー／クリーン環境へのインストール、設定画面の視覚・スクリーンリーダー評価。Windows CI でのクリーンビルドとインストーラー生成は、実行結果を確認して記録する。
+6. 別ユーザー／利用者のクリーン環境へのインストール、設定画面の視覚・スクリーンリーダー評価。CI上でのビルド、インストール、削除のスモーク試験は通過済み。
 
 公開配布を行う場合は、上記に加えて発行者署名と依存バイナリ／モデルの配布条件・NOTICEの最終確認が必要です。今回の個人評価では署名は要求しません。
 

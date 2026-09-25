@@ -2,7 +2,7 @@
 
 # Yomitsugu
 
-ローマ字を打ち続けながら、日本語に変換する Windows IME。
+ローマ字を打つそばから、日本語に変える Windows IME。
 
 <img src="docs/assets/readme/yomitsugu-showcase-hero-v2.png" alt="Yomitsugu のタイトルと、端末を持つキャラクター。" width="100%">
 
@@ -27,7 +27,7 @@
   <img src="docs/assets/readme/input-demo.gif" alt="入力したローマ字と変換候補を大きく並べたアニメーション。今日はいい天気ですね。とAPIを確認してください。の例。" width="800">
 </picture>
 
-変換エンジンの実測候補から、読みやすい時点を抜粋して並べました。入力中に候補がどう変わるかを示す図解です。アプリ画面の録画や Chrome・Office での動作を示す映像ではありません。
+上のアニメーションは、変換エンジンで確認した候補を使った図解です。アプリ画面の録画ではありません。
 
 ## 何ができるか
 
@@ -60,7 +60,7 @@ TIP は入力先アプリ内で動き、変換処理は専用プロセスへ渡�
 
 ## インストール
 
-現在は**評価版**です。`main` の更新時に [Windows CI](.github/workflows/windows.yml) が `installer-preview` を実行し、成功した実行の成果物からインストーラーを取得できます。リポジトリ管理者は「Run workflow」から再実行できます。インストーラーは未署名で、管理者権限が必要です。通常のリリース欄には、まだバイナリを置いていません。
+現在は**評価版**です。[Windows CI](https://github.com/urotsuki-san/Yomitsugu/actions/workflows/windows.yml) の成功した実行を開き、ページ下部の「Artifacts」から `yomitsugu-0.2.7-preview-installer` をダウンロードしてください。ZIP 内の `Yomitsugu-0.2.7-preview-x64-setup.exe` がインストーラーです。成果物は7日で失効します。インストーラーは未署名で、管理者権限が必要です。通常のリリース欄には、まだバイナリを置いていません。
 
 インストール後、Windows の入力切替で Yomitsugu を選びます。通知領域のアイコン（隠れている場合は `^` の中）から設定と辞書を開けます。標準の「あ」インジケーターへの表示は環境によって異なります。アンインストールは Windows の「インストールされているアプリ」から行えます。ユーザー辞書は削除しません。
 
