@@ -32,11 +32,23 @@
 
 既存の品質試験46/46（うち先頭候補の厳密試験14/14）、`engine_test`成功、拡張した`release_test`146/146、pytest19/19、Python受入32/32。`release_test`には1文字ずつ入力する5系列、補正後の削除、英字の保持と日本語読みとの競合、保護対象の入力欄、旧辞書キャッシュからの移行を含む。デスクトップを操作するE2Eは今回実行していない。
 
+配布フォルダーの`ime_engine_host.exe`へ実際のIPC要求を送り、今回の外来語・英字保持・連続入力12例でも先頭候補の一致を確認した。この1実行では最初の要求に約754 msかかった。上のwarm計測には初期読み込みが含まれないため、起動直後の応答改善は別途必要になる。
+
 ```powershell
 python scripts/evaluate_conversion.py --output audit/conversion-quality.json --check
 ```
 
 `--check`は、測定で得た最低件数と主要な報告例の先頭候補をCIで検査する。すべての評価例が合格したという意味ではない。
+
+### 辞書から選んだ500例
+
+報告例だけに偏らない確認として、EDICT2の一般語フラグ付きカタカナ見出しから4,757読みを抽出し、固定のSHA-256順で500読みを選んだ。ローマ字は変換表から生成し、同じ読みの見出しが複数ある場合はいずれかとの全文一致を数えた。読みの復元は500/500、見出しの先頭候補は443/500、5候補以内は500/500だった。
+
+辞書に入れたデータを使う収録確認であり、未知語や文脈判断の評価ではない。表記の異なる同義語・漢字表記が先頭になる場合もあるため、先頭以外の57例を一律に誤変換とは数えない。[入力と全候補](loanword-coverage-results.json)に出典ハッシュ・抽出方法を記録した。EDRDG由来の見出しと読みにはCC BY-SA 4.0が適用される。
+
+```powershell
+python scripts/evaluate_dictionary_coverage.py --source path/to/edict2u.gz --output audit/dictionary-coverage.json
+```
 
 ## 残る問題
 

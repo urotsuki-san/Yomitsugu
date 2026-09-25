@@ -7,14 +7,14 @@
 <img src="docs/assets/readme/yomitsugu-showcase-hero-v2.png" alt="Yomitsugu のタイトルと、端末を持つキャラクター。" width="100%">
 
 <p>
-  <img alt="Version 0.2.7 preview" src="https://img.shields.io/badge/version-0.2.7%20preview-7c3aed?style=for-the-badge">
+  <img alt="Version 0.2.8 preview" src="https://img.shields.io/badge/version-0.2.8%20preview-7c3aed?style=for-the-badge">
   <img alt="Windows x64" src="https://img.shields.io/badge/platform-Windows%20x64-334155?style=for-the-badge">
   <img alt="Local conversion" src="https://img.shields.io/badge/conversion-local-0f766e?style=for-the-badge">
   <a href="https://github.com/urotsuki-san/Yomitsugu/actions/workflows/windows.yml"><img alt="Windows CI" src="https://img.shields.io/github/actions/workflow/status/urotsuki-san/Yomitsugu/windows.yml?branch=main&style=for-the-badge&label=CI"></a>
   <a href="LICENSE"><img alt="License: MIT for original code" src="https://img.shields.io/badge/code-MIT-0f766e?style=for-the-badge"></a>
 </p>
 
-**[Windows 版をダウンロード（0.2.7 Preview）](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.7-preview.1/Yomitsugu-0.2.7-preview-x64-setup.exe)**
+**[Windows 版をダウンロード（0.2.8 Preview）](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.8-preview.1/Yomitsugu-0.2.8-preview-x64-setup.exe)**
 
 **[動いているところ](#動いているところ)** · **[何ができるか](#何ができるか)** · **[アーキテクチャ](#アーキテクチャ)** · **[インストール](#インストール)** · **[現在の範囲](#現在の範囲)** · **[ライセンス](#ライセンス)**
 
@@ -39,6 +39,8 @@
 | `APIwokakuninshitekudasai.` | APIを確認してください。 |
 | `samukunaltutekimasitane` | 寒くなってきましたね |
 | `ri-domi-` | README |
+| `aninsuto-ru` | アンインストール |
+| `softwarewokoushinsuru` | softwareを更新する |
 | `ri-domi-wokousinnsitekudasaiGithubde` | READMEを更新してくださいGithubで |
 | `sannkai` | 散開（先頭候補） |
 | `yajirushi` | → |
@@ -64,7 +66,7 @@ TIP は入力先アプリ内で動き、変換処理は専用プロセスへ渡�
 
 現在は**評価版**です。
 
-1. [Windows 用インストーラーをダウンロード](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.7-preview.1/Yomitsugu-0.2.7-preview-x64-setup.exe)します。
+1. [Windows 用インストーラーをダウンロード](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.8-preview.1/Yomitsugu-0.2.8-preview-x64-setup.exe)します。
 2. ダウンロードした `.exe` を実行し、画面の案内に従います。管理者権限が必要です。未署名のため、Windows が警告を表示する場合があります。
 3. インストール後、`Win` + `Space` で Yomitsugu を選びます。
 
@@ -74,7 +76,9 @@ TIP は入力先アプリ内で動き、変換処理は専用プロセスへ渡�
 
 ## 現在の範囲
 
-0.2.7-preview では、長い英日混在入力と `sannkai` の候補順位を修正しました。単一の Rich Edit ホストでの TIP E2E は **32件成功・0件失敗**。ネイティブの品質試験は46/46、配布試験は105/105、Python受入シードは32/32です。これらはこのテスト環境での結果です。
+0.2.8-preview では、長音での誤分割を修正し、Mozcのローマ字表、一般語・外来語の公開辞書、辞書で照合するタイプミス候補を追加しました。公開辞書は約30万項目（異表記・重複を含む）です。追加85例では外来語31/31が先頭、タイプミス23例中20例が5候補以内に入りました。[修正前との比較と未解決例](docs/conversion-quality.md)を公開しています。
+
+品質試験46/46、配布試験146/146、Python試験19/19・受入32/32。[Windows CI](https://github.com/urotsuki-san/Yomitsugu/actions/runs/36179185868)でインストーラーの生成とインストール・削除のスモーク試験も通過しました。この版でデスクトップを操作するTIP E2Eは実行していません。
 
 Chrome、Office、VS Code などでの継続入力はまだ調べ切れていません。文節の伸縮・再変換と正式な候補 UI Automation も未完成です。常用や一般配布の完成を宣言する段階ではありません。詳しい結果と残課題は [RELEASE.md](RELEASE.md) にまとめています。
 

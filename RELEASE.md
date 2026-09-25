@@ -2,7 +2,7 @@
 
 ローマ字を続けて打ち、入力中に日本語の変換候補を提示する Windows IME です。候補の選択・確定は利用者が行います。
 
-2026-09-26時点の開発中の評価版です。0.2.8では長音での誤分割、ローマ字表の欠落、辞書に基づくタイポ候補を修正しました。未署名のWindows x64版です。
+2026-09-26公開の評価版です。0.2.8では長音での誤分割、ローマ字表の欠落、辞書に基づくタイポ候補を修正しました。未署名のWindows x64版です。
 
 ## 0.2.8の変更
 
@@ -75,7 +75,7 @@ UTF-8（BOMあり／なし）のTSV。Google日本語入力／Mozc形式の「�
 
 `scripts/package_release.ps1` で `dist/yomitsugu-0.2.8-preview` を生成します。DLL／実行ファイル、専用エンジン、辞書、モデル、依存ライセンス、SHA-256一覧をまとめます。ZIPの横に同名の `.zip.sha256` を置きます。パッケージ生成は既存フォルダを上書きせず失敗します。`scripts/build_installer.ps1` は検証済みパッケージから Inno Setup の `Yomitsugu-0.2.8-preview-x64-setup.exe` を作ります。GitHub Actions は `main` 更新時と手動実行時に同じ工程を実行し、インストール・削除のスモーク試験後に `yomitsugu-0.2.8-preview-installer` を7日間保存します。
 
-利用者向けの評価版は [GitHub Releases](https://github.com/urotsuki-san/Yomitsugu/releases)からダウンロードできます。インストーラーのSHA-256も同じ画面に記載します。`public_release_ready=false` は、安定版としての一般配布条件が未達という意味です。
+利用者向けの評価版は [0.2.8 Previewのインストーラー](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.8-preview.1/Yomitsugu-0.2.8-preview-x64-setup.exe)をダウンロードしてください。[Windows CI 36179185868](https://github.com/urotsuki-san/Yomitsugu/actions/runs/36179185868)で最終ソースから生成し、インストール・COM登録・ログイン起動登録・削除のスモーク試験を通過した成果物です。インストーラーのSHA-256も同じ画面に記載します。`public_release_ready=false` は、安定版としての一般配布条件が未達という意味です。
 
 評価用インストーラーは管理者権限で起動し、64bit Windows にインストールします。DLLの登録、スタートメニュー項目、通知領域アイコンのログイン起動を設定し、Windows の「インストールされているアプリ」からアンインストールできます。既定IMEと個人辞書は変更しません。旧PowerShell版を使用中なら先に旧版の `uninstall_preview.ps1` で登録解除し、サインアウトしてからインストーラーを実行してください。未署名なので Windows が警告を表示する場合があります。
 
