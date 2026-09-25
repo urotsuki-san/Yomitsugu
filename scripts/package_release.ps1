@@ -24,6 +24,10 @@ $taskLicenses = @{
     'azookey-dictionary-LICENSE'='upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/LICENSE';
     'zenzai-model-LICENSE'='upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/LICENSE';
     'llama-cpp-LICENSE'='upstream/myime/llama.cpp-src/LICENSE';
+    'swift-LICENSE'='native/third_party/swift-LICENSE.txt';
+    'unicode-LICENSE'='native/third_party/unicode-LICENSE.txt';
+    'emoji-dictionary-README'='upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_emoji_dictionary_storage/README.md';
+    'emoji-dictionary-DATA-README'='upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_emoji_dictionary_storage/data/README.md';
     'nlohmann-json-LICENSE'='native/third_party/nlohmann/LICENSE.MIT'
     'public-dictionary-NOTICE'='native/third_party/public-dictionary-NOTICE.txt'
 }

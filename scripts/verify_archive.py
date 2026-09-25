@@ -12,5 +12,7 @@ with zipfile.ZipFile(archive) as z:
         assert entries[name].file_size==item['bytes'],name
         assert hashlib.sha256(z.read(name)).hexdigest().upper()==item['sha256'],name
     status={'archive':str(archive),'files_verified':len(entries),'crc':'passed','manifest_hashes':'passed','public_release_ready':manifest.get('public_release_ready')}
-Path('audit/2026-09-25/release/archive_validation.json').write_text(json.dumps(status,indent=2),encoding='utf-8')
+audit_dir=Path('audit/2026-09-25/release')
+audit_dir.mkdir(parents=True, exist_ok=True)
+(audit_dir/'archive_validation.json').write_text(json.dumps(status,indent=2),encoding='utf-8')
 print(json.dumps(status))

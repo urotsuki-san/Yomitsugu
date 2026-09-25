@@ -1,0 +1,96 @@
+name: Windows
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  source-checks:
+    runs-on: windows-2022
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: "0.8.22"
+      - name: Python regression
+        shell: pwsh
+        run: |
+          uv run pytest -q
+          if ($LASTEXITCODE -ne 0) { throw 'pytest failed' }
+          uv run python -c "from ime_mixed.evaluate import evaluate_seed_file; s=evaluate_seed_file('ime_acceptance_seed_cases.jsonl')['summary']; print(s); assert s['failed']==0"
+          if ($LASTEXITCODE -ne 0) { throw 'acceptance seed failed' }
+      - name: Build native source
+        shell: pwsh
+        run: |
+          cmake -S native -B native/build -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
+          cmake --build native/build --config Release --target engine_test ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
+      - name: Engine unit tests without optional runtime
+        shell: pwsh
+        run: |
+          & native/build/Release/engine_test.exe
+          if ($LASTEXITCODE -ne 0) { throw 'engine_test failed' }
+
+  installer-preview:
+    if: github.event_name != 'pull_request'
+    needs: source-checks
+    runs-on: windows-2022
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - uses: SwiftyLab/setup-swift@38f54a76b70d989321de9dc7c840618c08cf56e9
+        with:
+          swift-version: "6.4.0"
+      - name: Prepare pinned conversion runtime
+        shell: pwsh
+        run: scripts/ci/prepare_runtime.ps1
+      - name: Build and test full engine
+        shell: pwsh
+        run: |
+          cmake -S native -B native/build -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
+          cmake --build native/build --config Release --target engine_test quality_typo_long release_test ime_mixed_tip ime_engine_host ime_dictionary_tool ime_settings ime_tray ime_profile_control e2e_tip_tests tip_com_smoke
+          if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
+          & scripts/stage_engine.ps1 -Destination native/build/e2e_out_v11/engine
+          & native/build/Release/engine_test.exe
+          if ($LASTEXITCODE -ne 0) { throw 'engine_test failed' }
+          & native/build/Release/quality_typo_long.exe
+          if ($LASTEXITCODE -ne 0) { throw 'quality_typo_long failed' }
+          & native/build/Release/release_test.exe
+          if ($LASTEXITCODE -ne 0) { throw 'release_test failed' }
+          & native/build/e2e_out_v11/tip_com_smoke.exe
+          if ($LASTEXITCODE -ne 0) { throw 'TIP COM smoke failed' }
+      - name: Create validated package
+        shell: pwsh
+        run: |
+          & scripts/package_release.ps1
+          & scripts/validate_package.ps1
+          & scripts/archive_release.ps1
+          python scripts/verify_archive.py
+          if ($LASTEXITCODE -ne 0) { throw 'Archive verification failed' }
+      - name: Install Inno Setup compiler
+        shell: pwsh
+        run: |
+          choco install innosetup --version=6.7.1 --no-progress -y
+          if ($LASTEXITCODE -ne 0) { throw 'Inno Setup installation failed' }
+      - name: Build installer
+        shell: pwsh
+        run: scripts/build_installer.ps1
+      - name: Smoke test installation and removal
+        shell: pwsh
+        run: scripts/ci/smoke_installer.ps1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: yomitsugu-0.2.7-preview-installer
+          path: |
+            dist/installer/Yomitsugu-0.2.7-preview-x64-setup.exe
+            dist/yomitsugu-0.2.7-preview.zip.sha256
+          retention-days: 7
+          if-no-files-found: error

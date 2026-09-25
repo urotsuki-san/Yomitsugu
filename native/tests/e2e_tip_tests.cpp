@@ -38,7 +38,7 @@ static void Expect(bool cond, const char* name, const std::string& detail = "") 
 }
 
 static void PrintTipDiagnostics(const char* phase) {
-  HMODULE module = GetModuleHandleW(L"ime_mixed_tip_v10.dll");
+  HMODULE module = GetModuleHandleW(L"ime_mixed_tip_v11.dll");
   auto get = module ? reinterpret_cast<ImeTipGetDiagnosticsFn>(
                           GetProcAddress(module, "ImeTipGetDiagnostics")) : nullptr;
   TipDiagnostics d{};
@@ -257,6 +257,43 @@ struct Case {
 
 static void RunKeys(const char* keys) { SendAscii(keys); }
 
+static void PrintDemoFrame(int case_id, const char* typed, const char* phase) {
+  const std::wstring display = GetEditText();
+  const int needed = WideCharToMultiByte(CP_UTF8, 0, display.c_str(), -1, nullptr, 0, nullptr, nullptr);
+  if (needed <= 0) return;
+  std::string utf8(static_cast<size_t>(needed), '\0');
+  WideCharToMultiByte(CP_UTF8, 0, display.c_str(), -1, utf8.data(), needed, nullptr, nullptr);
+  std::printf("DEMO_FRAME\t%d\t%s\t%s\t%s\n", case_id, phase, typed, utf8.c_str());
+}
+
+static void RunKeysForDemo(int case_id, const char* keys) {
+  std::string typed;
+  for (const char* p = keys; *p; ++p) {
+    const char one[] = {*p, '\0'};
+    SendAscii(one);
+    Pump(95);
+    typed.push_back(*p);
+    PrintDemoFrame(case_id, typed.c_str(), "typing");
+  }
+}
+
+static bool RunDemoCase(int case_id, const char* keys, const wchar_t* expected) {
+  ClearEdit();
+  FocusEdit();
+  Pump(350);
+  PrintDemoFrame(case_id, "", "start");
+  RunKeysForDemo(case_id, keys);
+  const auto deadline = GetTickCount64() + 10000;
+  while (GetTickCount64() < deadline && GetEditText() != expected) Pump(50);
+  PrintDemoFrame(case_id, keys, "candidate");
+  SendVk(VK_RETURN);
+  Pump(1400);
+  const bool matched = GetEditText() == expected;
+  PrintDemoFrame(case_id, keys, "committed");
+  std::printf("DEMO %s\n", matched ? "PASS" : "FAIL");
+  return matched;
+}
+
 static void ClearBetween() {
   FocusEdit();
   ClearEdit();
@@ -323,12 +360,27 @@ int main(int argc, char** argv) {
   }
   Pump(100);
   FocusEdit();
+  if (argc == 2 && std::strcmp(argv[1], "--demo") == 0) {
+    SetWindowTextW(g_hMain, L"Yomitsugu input demo (Rich Edit)");
+    SetWindowPos(g_hMain, HWND_TOP, 120, 100, 700, 360, SWP_SHOWWINDOW);
+    FocusEdit();
+    Pump(2200);
+    const bool first = RunDemoCase(1, "samukunaltutekimasitane", L"寒くなってきましたね");
+    const bool second = RunDemoCase(2, "ri-domi-wokousinnsitekudasaiGithubde",
+                                    L"READMEを更新してくださいGithubで");
+    const bool third = RunDemoCase(3, "sannkai", L"散開");
+    DestroyWindow(g_hMain);
+    tsf_thread_mgr->Deactivate();
+    tsf_thread_mgr->Release();
+    CoUninitialize();
+    return first && second && third ? 0 : 1;
+  }
   std::printf("E2E host visible=%d foreground=%d focused=%d keyboard_lang=0x%04x\n",
               IsWindowVisible(g_hMain) ? 1 : 0,
               GetForegroundWindow() == g_hMain ? 1 : 0,
               GetFocus() == g_hEdit ? 1 : 0,
               LOWORD(reinterpret_cast<ULONG_PTR>(GetKeyboardLayout(0))));
-  std::printf("E2E TIP module_loaded=%d\n", GetModuleHandleW(L"ime_mixed_tip_v10.dll") ? 1 : 0);
+  std::printf("E2E TIP module_loaded=%d\n", GetModuleHandleW(L"ime_mixed_tip_v11.dll") ? 1 : 0);
 
   // The Windows input indicator must expose this TIP's あ menu item.
   {

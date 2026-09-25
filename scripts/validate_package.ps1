@@ -32,5 +32,7 @@ foreach ($taskScript in $taskScripts) {
 }
 $taskSignature = (Get-AuthenticodeSignature -LiteralPath (Join-Path $taskPackage 'ime_mixed_tip_v11.dll')).Status.ToString()
 $taskReport = [ordered]@{files_verified=$taskManifest.files.Count; bytes=$taskBytes; tip_signature=$taskSignature; public_release_ready=$taskManifest.public_release_ready; powershell_parse='passed'}
-$taskReport | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskRoot 'audit/2026-09-25/release/package_validation.json') -Encoding UTF8
+$taskAuditDir = Join-Path $taskRoot 'audit/2026-09-25/release'
+New-Item -ItemType Directory -Path $taskAuditDir -Force | Out-Null
+$taskReport | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $taskAuditDir 'package_validation.json') -Encoding UTF8
 $taskReport | ConvertTo-Json -Compress
