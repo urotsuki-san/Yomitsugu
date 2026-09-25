@@ -14,10 +14,12 @@ class UserDictionary {
  private:
   void ApplyExact(const DecodeInput& input, std::vector<Candidate>* candidates, bool public_dictionary) const;
   void ApplyCorrections(const DecodeInput& input, std::vector<Candidate>* candidates) const;
+  bool ApplyEnglish(const DecodeInput& input, std::vector<Candidate>* candidates) const;
   std::map<std::string, std::vector<std::string>> entries_;
   std::set<std::string> symbol_only_readings_;
   std::set<std::string> supplemental_readings_;
   std::set<std::string> priority_readings_;
+  std::set<std::string> english_words_;
   std::map<std::string, std::vector<std::string>> supplemental_words_;
   size_t count_ = 0;
   std::string json_ = "[]";

@@ -7,7 +7,7 @@ using System.Text.RegularExpressions;
 public static class YomitsuguDictionaryBuilder {
     public sealed class Result {
         public string Text;
-        public int Readings, Entries, Symbols, ComputingTerms, LexicalEntries;
+        public int Readings, Entries, Symbols, ComputingTerms, LexicalEntries, EnglishWords;
     }
     sealed class Entry { public string Word, Pos; }
     static readonly Regex Kana = new Regex("^[ぁ-ゖー]{2,30}$");
@@ -19,6 +19,7 @@ public static class YomitsuguDictionaryBuilder {
     static readonly Regex Irregular = new Regex(@"\((?:ik|iK|io|oK)\)");
     static readonly Regex Obsolete = new Regex(@"\((?:arch|obs|obsc)\)");
     static readonly Regex ComputingWord = new Regex(@"^[A-Z][A-Z0-9+._-]{1,30}$");
+    static readonly Regex EnglishWord = new Regex(@"^[a-z][a-z-]{2,28}[a-z]$");
     static readonly Regex GlossFlags = new Regex(@"\([^)]*\)|\{[^}]*\}");
     static string Hiragana(string value) {
         var chars=value.ToCharArray();
@@ -26,7 +27,8 @@ public static class YomitsuguDictionaryBuilder {
         return new string(chars);
     }
     static bool Add(SortedDictionary<string,List<Entry>> rows,string reading,string word,string pos) {
-        if(!Kana.IsMatch(reading) || String.IsNullOrEmpty(word) || word.Length>48 || word.Contains("\uFFFD")) return false;
+        bool validReading=Kana.IsMatch(reading) || (pos=="英単語" && reading==word && EnglishWord.IsMatch(reading));
+        if(!validReading || String.IsNullOrEmpty(word) || word.Length>48 || word.Contains("\uFFFD")) return false;
         List<Entry> values;
         if(!rows.TryGetValue(reading,out values)) { values=new List<Entry>(); rows.Add(reading,values); }
         foreach(var value in values) if(value.Word==word) {
@@ -71,6 +73,15 @@ public static class YomitsuguDictionaryBuilder {
             if(split<0) continue;
             string head=line.Substring(0,split),glosses=line.Substring(split+2);
             result.LexicalEntries+=AddLexical(rows,head,glosses);
+            bool englishSource=glosses.Contains("{comp}");
+            string forms=head.Split(new[]{" ["},StringSplitOptions.None)[0];
+            foreach(var form in forms.Split(';')) if(Loanword.IsMatch(Annotation.Replace(form,""))) englishSource=true;
+            if(englishSource) foreach(var gloss in glosses.Split('/')) {
+                string word=GlossFlags.Replace(gloss,"").Trim();
+                if(!EnglishWord.IsMatch(word)) continue;
+                Add(rows,word,word,"英単語");
+                if(word.Contains("-")) { word=word.Replace("-",""); Add(rows,word,word,"英単語"); }
+            }
             if(!line.Contains("{comp}")) continue;
             var match=Regex.Match(head,@"\[([^]]+)\]");
             string reading=Hiragana(match.Success?match.Groups[1].Value:head.Split(';')[0].Trim());
@@ -92,6 +103,7 @@ public static class YomitsuguDictionaryBuilder {
         foreach(var pair in rows) foreach(var value in pair.Value) {
             if(value.Pos=="記号") result.Symbols++;
             else if(value.Pos=="名詞") result.ComputingTerms++;
+            else if(value.Pos=="英単語") result.EnglishWords++;
             else result.LexicalEntries++;
         }
         if(result.Symbols<500 || result.Symbols>20000 || result.ComputingTerms<10 || result.ComputingTerms>10000 ||
@@ -110,7 +122,8 @@ public static class YomitsuguDictionaryBuilder {
                 result.Entries++;
             }
         }
-        result.Text=output.ToString(); result.Readings=rows.Count;
+        result.Text=output.ToString();
+        foreach(var key in rows.Keys) if(Kana.IsMatch(key)) result.Readings++;
         return result;
     }
 }

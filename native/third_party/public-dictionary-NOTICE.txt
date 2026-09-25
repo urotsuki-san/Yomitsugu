@@ -18,7 +18,8 @@ Public dictionary sources bundled with IME Mixed Preview
    Its EDRDG-derived entries are offered under CC BY-SA 4.0.
    Modifications: hiragana reading normalization, noun/common-word/loanword
    selection, exclusion of obsolete/irregular forms, reading restriction checks,
-   acronym extraction, deduplication and a maximum of 32 surfaces per reading.
+   acronym extraction, an English literal index from loanword/computing glosses,
+   deduplication and a maximum of 32 surfaces per reading.
 
 Only dictionary files are downloaded. IME Mixed does not send typed words,
 sentences, or user_dictionary.tsv to these sources.
@@ -569,4 +570,3 @@ the avoidance of doubt, this paragraph does not form part of the
 public licenses.
 
 Creative Commons may be contacted at creativecommons.org.
-

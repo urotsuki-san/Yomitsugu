@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <set>
 #include <cstring>
+#include <cctype>
 #include "nlohmann/json.hpp"
 namespace ime {
 std::filesystem::path PublicDictionaryPath(const std::filesystem::path& bundled,
@@ -38,6 +39,7 @@ bool UserDictionary::Load(const std::filesystem::path& path, std::string* error,
   std::set<std::string> symbol_only_readings;
   std::set<std::string> supplemental_readings;
   std::set<std::string> priority_readings;
+  std::set<std::string> english_words;
   std::map<std::string,std::vector<std::string>> supplemental_words;
   auto export_entries = nlohmann::json::array();
   std::string line; size_t count = 0, row = 0;
@@ -58,6 +60,7 @@ bool UserDictionary::Load(const std::filesystem::path& path, std::string* error,
     if (std::find(words.begin(),words.end(),word) == words.end()) {
       words.push_back(word); ++count;
       std::string pos = next == std::string::npos ? "noun" : line.substr(next+1, line.find('\t',next+1)-next-1);
+      if (pos == u8"英単語" && reading == word) english_words.insert(reading);
       if (pos == u8"名詞" || pos == "noun") priority_readings.insert(reading);
       if (pos == u8"補助語") {
         supplemental_readings.insert(reading);
@@ -80,14 +83,60 @@ bool UserDictionary::Load(const std::filesystem::path& path, std::string* error,
   entries_ = std::move(entries); symbol_only_readings_ = std::move(symbol_only_readings);
   supplemental_readings_ = std::move(supplemental_readings);
   priority_readings_ = std::move(priority_readings);
+  english_words_ = std::move(english_words);
   supplemental_words_ = std::move(supplemental_words);
   count_ = count; json_ = std::move(json);
   if (error) error->clear(); return true;
 }
 void UserDictionary::Apply(const DecodeInput& input, std::vector<Candidate>* candidates,
                            bool public_dictionary) const {
+  if (public_dictionary && ApplyEnglish(input,candidates)) return;
   ApplyExact(input, candidates, public_dictionary);
   if (public_dictionary) ApplyCorrections(input, candidates);
+}
+bool UserDictionary::ApplyEnglish(const DecodeInput& input, std::vector<Candidate>* candidates) const {
+  if (input.field!="prose" || input.candidate_limit<=0 || input.raw_text.size()>512) return false;
+  auto raw=input.raw_text, lower=raw;
+  std::transform(lower.begin(),lower.end(),lower.begin(),[](unsigned char ch){return static_cast<char>(std::tolower(ch));});
+  bool ok=false;auto reading=ConvertRomaji(raw,&ok);
+  // Loanwords may also be valid Japanese romaji (anime, sushi, karaoke).
+  // Preserve their Japanese interpretation when the reading is in the lexicon.
+  if(ok && entries_.count(reading)) return false;
+  std::string output;
+  bool exact=english_words_.count(lower)!=0;
+  if(exact) output=raw;
+  else {
+    for(size_t end=std::min<size_t>(30,raw.size());end>=4;--end) {
+      if(end==raw.size() || !english_words_.count(lower.substr(0,end))) continue;
+      bool prefix_ok=false;
+      const auto prefix_reading=ConvertRomaji(raw.substr(0,end),&prefix_ok);
+      if(prefix_ok && entries_.count(prefix_reading)) continue;
+      auto suffix=raw.substr(end);
+      bool particle=false;
+      for(auto prefix: {"wo","ga","no","ni","ha","de","to","mo","he"})
+        if(suffix.compare(0,std::strlen(prefix),prefix)==0) particle=true;
+      bool suffix_ok=false;ConvertRomaji(suffix,&suffix_ok);
+      if(!particle || !suffix_ok) continue;
+      auto request=input;request.raw_text=suffix;
+      auto converted=Decode(request);
+      if(converted.empty() || converted.front().output_text==suffix) continue;
+      output=raw.substr(0,end)+converted.front().output_text;
+      break;
+    }
+  }
+  if(output.empty()) return false;
+  std::vector<Candidate> combined;std::set<std::string> seen;
+  Candidate first;first.output_text=output;first.reading_text=reading;first.is_raw=exact;
+  combined.push_back(first);seen.insert(output);
+  for(const auto& candidate:*candidates) if(seen.insert(candidate.output_text).second) combined.push_back(candidate);
+  const auto limit=static_cast<size_t>(input.candidate_limit);
+  if(combined.size()>limit) combined.resize(limit);
+  if(limit>1 && std::none_of(combined.begin(),combined.end(),[&](const Candidate& c){return c.output_text==raw;})) {
+    if(combined.size()==limit) combined.pop_back();
+    Candidate literal;literal.output_text=literal.reading_text=raw;literal.is_raw=true;combined.push_back(literal);
+  }
+  *candidates=std::move(combined);
+  return true;
 }
 void UserDictionary::ApplyExact(const DecodeInput& input, std::vector<Candidate>* candidates,
                                 bool public_dictionary) const {

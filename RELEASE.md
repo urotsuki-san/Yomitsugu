@@ -10,6 +10,7 @@
 - Mozcのローマ字表323行を出典付きで採用し、`we`、拡張音、子音の持ち越しを補完。
 - `aninsuto-ru`、`anninsuto-ru` などの撥音の曖昧さを辞書で照合。隣接打鍵の入れ替え、重複、抜け、置換、長音位置のずれも候補として提示。
 - 公開辞書を記号・略語から一般名詞・外来語へ拡張。文字化けを避けるため公式UTF-8版へ移行。
+- 辞書由来の英字保持用索引を追加。`software`などの英語表記と、後続の日本語入力を両立。
 - 追加85例で外来語31/31が先頭、タイポ23例中20例が5候補以内。すべての入力を正しく補正できるわけではありません。
 
 ## 基本機能
@@ -22,7 +23,7 @@
 - 公開辞書の更新はWindows標準のPowerShell/.NETで実行。利用者によるPythonの導入は不要。公式のUTF-8データを使い、開発用生成器との出力SHA-256一致を検証しています。
 - 0.2.5ではTSF項目の登録成功を実画面の表示成功と誤認していた。Windowsが互換性条件を満たさないIMEの統合モードアイコンを表示しない場合があるため、このPreviewでは統合モードアイコンの可視性を保証しない。別の辞書管理アイコンで操作経路を提供する。
 - `ltu`／`xtu`／`ltsu`／`xtsu` を小さい「っ」に変換し、`samukunaltutekimasitane` の最優先候補を「寒くなってきましたね」に修正。`saikilyou` も「最強」を最優先にする。
-- [Mozcの記号辞書](https://github.com/google/mozc/blob/master/src/data/symbol/symbol.tsv)と[EDRDGのUTF-8 EDICT2辞書](https://www.edrdg.org/pub/Nihongo/edict2u.gz)から公開辞書を生成。176,481読み・277,889候補（一般語・外来語274,024、記号3,115、英語略語750）。本辞書や異表記との重複を含むため、そのまま語彙数とは数えません。
+- [Mozcの記号辞書](https://github.com/google/mozc/blob/master/src/data/symbol/symbol.tsv)と[EDRDGのUTF-8 EDICT2辞書](https://www.edrdg.org/pub/Nihongo/edict2u.gz)から公開辞書を生成。176,481かな読み・277,889変換候補（一般語・外来語274,024、記号3,115、英語略語750）と英字保持用21,632項目、計299,521項目。本辞書や異表記との重複を含むため、そのまま語彙数とは数えません。
 - 記号読みと一般語が重なる場合は一般語の先頭候補を保持し、記号を後続候補に置く。矢印は記号を先頭に置く。個人辞書の登録語はこれらより優先する。
 - 文章中の半角ピリオド／カンマは全角の「。」「、」を優先し、原文候補も残す。
 - AzooKeyの辞書候補を日本語変換の主候補に使用。手書き辞書は補正候補・障害時の補助に変更。
@@ -49,7 +50,7 @@ powershell -NoProfile -File scripts/check_release.ps1 -Mode release
 powershell -NoProfile -File scripts/check_release.ps1 -Mode python
 ```
 
-`release_test` は実辞書がなければ失敗します。0.2.8で `engine_test` ALL PASSED、品質46/46、`release_test` 130/130、pytest17/17、Python受入32/32を確認しました。追加85例の結果と未解決例は [変換品質の記録](https://github.com/urotsuki-san/Yomitsugu/blob/main/docs/conversion-quality.md)にあります。利用者のクリーンPCでの実動作は未検証です。
+`release_test` は実辞書がなければ失敗します。0.2.8で `engine_test` ALL PASSED、品質46/46、`release_test` 146/146、pytest19/19、Python受入32/32を確認しました。追加85例の結果と未解決例は [変換品質の記録](https://github.com/urotsuki-san/Yomitsugu/blob/main/docs/conversion-quality.md)にあります。利用者のクリーンPCでの実動作は未検証です。
 
 デスクトップを操作するE2Eは通常の `ctest` に含めません。今回の0.2.8では実行していません。旧0.2.7（v11）のRich Edit単一ホストでの32成功・0失敗を、0.2.8の実アプリ検証としては扱いません。0.2.8用の出力先は `native/build/e2e_out_v12/` です。
 

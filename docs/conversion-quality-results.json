@@ -84,9 +84,9 @@
       }
     },
     "warm_ms": {
-      "median": 21.0925,
-      "p95": 58.852,
-      "maximum": 110.518
+      "median": 24.9595,
+      "p95": 73.002,
+      "maximum": 123.188
     }
   },
   "method": "85 fixed full-output cases; same order; first conversion excluded from latency. Field controls are also tested natively. Not a representative population estimate.",

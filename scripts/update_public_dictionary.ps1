@@ -80,6 +80,7 @@ $taskMetadata = [ordered]@{
   symbols=$taskBuilt.Symbols
   computing_terms=$taskBuilt.ComputingTerms
   lexical_entries=$taskBuilt.LexicalEntries
+  english_words=$taskBuilt.EnglishWords
   entries=$taskBuilt.Entries
 }
 $taskMetaPath = [IO.Path]::ChangeExtension($OutputPath,'.sources.json')

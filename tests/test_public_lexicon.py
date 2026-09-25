@@ -25,3 +25,11 @@ def test_inflection_is_left_to_the_main_dictionary():
 
 def test_kanji_source_with_supplementary_characters_remains_intact():
     assert list(updater.lexical_entries('𠮷野 [よしの]','(n) place/')) == [('よしの','𠮷野','補助語')]
+
+def test_english_loanword_glosses_are_separate_literal_keys():
+    rows=list(updater.english_entries('オンライン','(n) on-line/online status/'))
+    assert ('online','online','英単語') in rows
+    assert all(' ' not in key for key,_,_ in rows)
+
+def test_general_definition_does_not_become_an_english_dictionary():
+    assert list(updater.english_entries('歩む [あゆむ]','(v5m,vi) walk/')) == []

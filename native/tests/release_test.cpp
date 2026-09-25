@@ -85,6 +85,15 @@ int wmain(int argc, wchar_t** argv) {
     Check(!dict.Load(path,&error)&&dict.size()==1,"invalid import preserves previous dictionary");
     std::filesystem::remove(path); }
   Check(AzookeyEnsureReady(),"real dictionary required (no soft skip)");
+  { const char* words[]={"software","hardware","online","version","computer","folder","password","server","database"};
+    for(auto raw:words) { DecodeInput in;in.raw_text=raw;auto list=DecodeWithPublic(in);
+      Check(!list.empty()&&list.front().output_text==raw,"dictionary English spelling remains literal"); }
+    for(auto raw:{"sushi","anime","karaoke","manga","sushiwotaberu","kanawonyuuryoku"}) { DecodeInput in;in.raw_text=raw;
+      auto base=Decode(in),list=DecodeWithPublic(in);
+      Check(!base.empty()&&!list.empty()&&base.front().output_text==list.front().output_text,"English glossary does not override valid Japanese reading"); }
+    DecodeInput in;in.raw_text="softwarewokoushinsuru";auto list=DecodeWithPublic(in);
+    Check(!list.empty()&&list.front().output_text==u8"softwareを更新する","dictionary English prefix supports continuous Japanese suffix");
+  }
   { const std::pair<const char*,const char*> rules[] = {
       {"we",u8"うぇ"},{"wi",u8"うぃ"},{"whe",u8"うぇ"},{"twu",u8"とぅ"},
       {"dwu",u8"どぅ"},{"she",u8"しぇ"},{"che",u8"ちぇ"},{"vya",u8"ゔゃ"},

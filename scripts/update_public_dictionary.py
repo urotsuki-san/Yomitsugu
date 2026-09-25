@@ -76,11 +76,24 @@ def lexical_entries(head: str, glosses: str):
                 yield reading, word, '補助語'
 
 
+def english_entries(head: str, glosses: str):
+    forms = head.split(' [', 1)[0].split(';')
+    if '{comp}' not in glosses and not any(re.fullmatch(r'[ァ-ヶー・]{2,30}', re.sub(r'\([^)]*\)', '', form)) for form in forms):
+        return
+    for gloss in glosses.split('/'):
+        word = re.sub(r'\([^)]*\)|\{[^}]*\}', '', gloss).strip()
+        if re.fullmatch(r'[a-z][a-z-]{2,28}[a-z]', word):
+            yield word, word, '英単語'
+            if '-' in word:
+                yield word.replace('-', ''), word.replace('-', ''), '英単語'
+
+
 def build_rows(symbol_data: bytes, edict_data: bytes) -> tuple[list[tuple[str, str, str]], dict[str, int]]:
     rows: dict[str, list[tuple[str, str]]] = {}
 
     def add(reading: str, surface: str, pos: str) -> None:
-        if not is_kana_reading(reading) or not surface or len(surface) > 48 or '\ufffd' in surface:
+        valid_reading = is_kana_reading(reading) or (pos == '英単語' and reading == surface and re.fullmatch(r'[a-z][a-z-]{2,28}[a-z]', reading))
+        if not valid_reading or not surface or len(surface) > 48 or '\ufffd' in surface:
             return
         values = rows.setdefault(reading, [])
         for index, (existing, old_pos) in enumerate(values):
@@ -107,6 +120,8 @@ def build_rows(symbol_data: bytes, edict_data: bytes) -> tuple[list[tuple[str, s
             before = len(rows.get(reading, []))
             add(reading, word, pos)
             lexical_count += len(rows.get(reading, [])) > before
+        for reading, word, pos in english_entries(head, glosses):
+            add(reading, word, pos)
         if "{comp}" not in line:
             continue
         reading_match = re.search(r"\[([^]]+)\]", head)
@@ -142,7 +157,7 @@ def build_rows(symbol_data: bytes, edict_data: bytes) -> tuple[list[tuple[str, s
     required = {("りーどみー", "README"), ("やじるし", "→"), ("まる", "○")}
     if not required.issubset({(reading, word) for reading, word, _ in flat}):
         raise ValueError("Public dictionary is missing expected entries")
-    return flat, {"readings": len(rows), "symbols": symbol_count, "computing_terms": term_count,
+    return flat, {"readings": sum(is_kana_reading(key) for key in rows), "english_words": sum(pos == '英単語' for _, _, pos in flat), "symbols": symbol_count, "computing_terms": term_count,
                   "lexical_entries": lexical_count, "entries": len(flat)}
 
 
