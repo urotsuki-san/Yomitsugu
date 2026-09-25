@@ -1,20 +1,28 @@
-# Yomitsugu 0.2.7 Preview
+# Yomitsugu 0.2.8 Preview
 
 ローマ字を続けて打ち、入力中に日本語の変換候補を提示する Windows IME です。候補の選択・確定は利用者が行います。
 
-2026-09-26時点の評価版です。一般配布の承認済み版ではありません。今回の利用目的では公開配布用の署名は対象外です。0.2.7では長い英日混在入力、`sannkai` の候補順位を修正し、通知領域アイコンと公開用READMEを更新しました。
+2026-09-26時点の開発中の評価版です。0.2.8では長音での誤分割、ローマ字表の欠落、辞書に基づくタイポ候補を修正しました。未署名のWindows x64版です。
 
-## 今回の改善
+## 0.2.8の変更
+
+- 長音の途中で語を分けて誤った候補を優先する問題を修正。
+- Mozcのローマ字表323行を出典付きで採用し、`we`、拡張音、子音の持ち越しを補完。
+- `aninsuto-ru`、`anninsuto-ru` などの撥音の曖昧さを辞書で照合。隣接打鍵の入れ替え、重複、抜け、置換、長音位置のずれも候補として提示。
+- 公開辞書を記号・略語から一般名詞・外来語へ拡張。文字化けを避けるため公式UTF-8版へ移行。
+- 追加85例で外来語31/31が先頭、タイポ23例中20例が5候補以内。すべての入力を正しく補正できるわけではありません。
+
+## 基本機能
 
 - `a`／`i`／`u`／`e`／`o` は日本語の文章欄で「あ」／「い」／「う」／「え」／「お」を第一候補にし、英字も候補に残す。識別子欄では英字を維持する。
 - 辞書管理用のアイコンを通知領域へ登録し、右クリックから設定・ユーザー辞書の登録／編集・TSV取り込み・公開辞書の更新・説明へ進める。Windowsがアイコンを「隠れているインジケーター」に収める場合は `^` の一覧から開く。スタートメニューの「Yomitsugu → 設定と辞書」と `ime_settings.exe` からも開ける。
 - `ri-domi-wokousinnsitekudasaiGithubde` は公開辞書を文頭語に使い、後続の日本語と英語を分割して `READMEを更新してくださいGithubで` を提示する。
-- `sannkai` の読み「さんかい」では、数字・助数詞の省略表記より辞書の一般語を優先し、「散開」を先頭候補にする。`toritatigasannkaisuru` の「鳥たちが散開する」は候補に残るが、現状は2番目。
+- `sannkai` の読み「さんかい」では、数字・助数詞の省略表記より辞書の一般語を優先し、「散開」を先頭候補にする。`toritatigasannkaisuru` の「鳥たちが散開する」は候補に残りますが、文脈に合った同音語を先頭に選ぶ改善は残っています。
 - ユーザー辞書の登録画面を追加。読み・単語・品詞の登録、更新、削除、保存をアプリ内で行う。辞書フォルダーがなくても開け、保存時に作成する。保存前に形式と件数を検査し、旧ファイルを `.bak` に退避する。
-- 公開辞書の更新はWindows標準のPowerShellで実行。利用者によるPythonの導入は不要。同じ公開ソースから従来の更新器とバイト単位で一致する3,911候補を生成することを検証した。
+- 公開辞書の更新はWindows標準のPowerShell/.NETで実行。利用者によるPythonの導入は不要。公式のUTF-8データを使い、開発用生成器との出力SHA-256一致を検証しています。
 - 0.2.5ではTSF項目の登録成功を実画面の表示成功と誤認していた。Windowsが互換性条件を満たさないIMEの統合モードアイコンを表示しない場合があるため、このPreviewでは統合モードアイコンの可視性を保証しない。別の辞書管理アイコンで操作経路を提供する。
 - `ltu`／`xtu`／`ltsu`／`xtsu` を小さい「っ」に変換し、`samukunaltutekimasitane` の最優先候補を「寒くなってきましたね」に修正。`saikilyou` も「最強」を最優先にする。
-- [Mozcの記号辞書](https://github.com/google/mozc/blob/master/src/data/symbol/symbol.tsv)と[EDRDGのEDICT2辞書](https://www.edrdg.org/pub/Nihongo/edict2.gz)から独立した公開辞書を生成。今回取得したデータは2,062の読み、3,911候補（記号3,161、IT用語750）。「やじるし」→「→」と `ri-domi-` → `README` を含む。候補の列挙をコードから取り除き、辞書ファイルとして更新できるようにした。
+- [Mozcの記号辞書](https://github.com/google/mozc/blob/master/src/data/symbol/symbol.tsv)と[EDRDGのUTF-8 EDICT2辞書](https://www.edrdg.org/pub/Nihongo/edict2u.gz)から公開辞書を生成。176,481読み・277,889候補（一般語・外来語274,024、記号3,115、英語略語750）。本辞書や異表記との重複を含むため、そのまま語彙数とは数えません。
 - 記号読みと一般語が重なる場合は一般語の先頭候補を保持し、記号を後続候補に置く。矢印は記号を先頭に置く。個人辞書の登録語はこれらより優先する。
 - 文章中の半角ピリオド／カンマは全角の「。」「、」を優先し、原文候補も残す。
 - AzooKeyの辞書候補を日本語変換の主候補に使用。手書き辞書は補正候補・障害時の補助に変更。
@@ -41,9 +49,9 @@ powershell -NoProfile -File scripts/check_release.ps1 -Mode release
 powershell -NoProfile -File scripts/check_release.ps1 -Mode python
 ```
 
-`release_test` は実辞書がなければ失敗します。`engine_test` 単独の辞書欠落時soft-skipを配布判定に使いません。0.2.7のエンジン変更後に `engine_test` ALL PASSED、品質46/46、`release_test` 105/105、pytest 11/11、Python受入32/32を確認しました。0.2.6の実測では通知領域アイコンのOS登録とクリックによる設定画面起動も確認しました。[Windows CI 実行 36160191219](https://github.com/urotsuki-san/Yomitsugu/actions/runs/36160191219) では、Windows 2022ランナー上でSwiftを含む依存ランタイムからビルドし、同じ品質試験と配布パッケージ検証を通しました。利用者のクリーンPCでの実動作は未検証です。
+`release_test` は実辞書がなければ失敗します。0.2.8で `engine_test` ALL PASSED、品質46/46、`release_test` 130/130、pytest17/17、Python受入32/32を確認しました。追加85例の結果と未解決例は [変換品質の記録](https://github.com/urotsuki-san/Yomitsugu/blob/main/docs/conversion-quality.md)にあります。利用者のクリーンPCでの実動作は未検証です。
 
-E2Eは通常の `ctest` には含めません。`scripts/stage_engine.ps1 -Destination native/build/e2e_out_v11/engine` → `scripts/e2e_preflight.ps1` → `native/scripts/clear_dbg.ps1` → `native/scripts/e2e_run.ps1`（UAC1回）。エンジンの配置は入力先アプリではなくTIPの隣の `engine` 内です。0.2.7（v11）の単一Rich Editホスト実機E2Eは32成功・0失敗で、長文英日混在と `sannkai` を含みます。終了後も既定の日本語IMEがGoogleのままであることをTSF APIで確認しました。ChromeやOfficeでの互換性試験ではありません。
+デスクトップを操作するE2Eは通常の `ctest` に含めません。今回の0.2.8では実行していません。旧0.2.7（v11）のRich Edit単一ホストでの32成功・0失敗を、0.2.8の実アプリ検証としては扱いません。0.2.8用の出力先は `native/build/e2e_out_v12/` です。
 
 ## ユーザー辞書
 
@@ -64,9 +72,9 @@ UTF-8（BOMあり／なし）のTSV。Google日本語入力／Mozc形式の「�
 
 ## 配布フォルダとインストール
 
-`scripts/package_release.ps1` で `dist/yomitsugu-0.2.7-preview` を生成します。DLL／実行ファイル、専用エンジン、辞書、モデル、依存ライセンス、SHA-256一覧をまとめます。ZIPの横に同名の `.zip.sha256` を置きます。パッケージ生成は既存フォルダを上書きせず失敗します。`scripts/build_installer.ps1` は検証済みパッケージから Inno Setup の `Yomitsugu-0.2.7-preview-x64-setup.exe` を作ります。GitHub Actions は `main` 更新時と手動実行時に同じ工程を実行し、インストール・削除のスモーク試験後に `yomitsugu-0.2.7-preview-installer` を7日間保存します。
+`scripts/package_release.ps1` で `dist/yomitsugu-0.2.8-preview` を生成します。DLL／実行ファイル、専用エンジン、辞書、モデル、依存ライセンス、SHA-256一覧をまとめます。ZIPの横に同名の `.zip.sha256` を置きます。パッケージ生成は既存フォルダを上書きせず失敗します。`scripts/build_installer.ps1` は検証済みパッケージから Inno Setup の `Yomitsugu-0.2.8-preview-x64-setup.exe` を作ります。GitHub Actions は `main` 更新時と手動実行時に同じ工程を実行し、インストール・削除のスモーク試験後に `yomitsugu-0.2.8-preview-installer` を7日間保存します。
 
-利用者向けの評価版は [GitHub Releases の 0.2.7 Preview](https://github.com/urotsuki-san/Yomitsugu/releases/tag/v0.2.7-preview.1) に置きます。インストーラーを直接ダウンロードでき、同じ画面にSHA-256と注意点を記載しています。`public_release_ready=false` は安定版としての一般配布条件が未達という意味です。
+利用者向けの評価版は [GitHub Releases](https://github.com/urotsuki-san/Yomitsugu/releases)からダウンロードできます。インストーラーのSHA-256も同じ画面に記載します。`public_release_ready=false` は、安定版としての一般配布条件が未達という意味です。
 
 評価用インストーラーは管理者権限で起動し、64bit Windows にインストールします。DLLの登録、スタートメニュー項目、通知領域アイコンのログイン起動を設定し、Windows の「インストールされているアプリ」からアンインストールできます。既定IMEと個人辞書は変更しません。旧PowerShell版を使用中なら先に旧版の `uninstall_preview.ps1` で登録解除し、サインアウトしてからインストーラーを実行してください。未署名なので Windows が警告を表示する場合があります。
 
@@ -82,7 +90,7 @@ Program Filesのバージョン別フォルダにコピーし、既定IMEは変�
 
 ## クラウド辞書の方針
 
-入力文をサーバーへ送らず、上記2つの固定URLから公開辞書ファイルだけをHTTPSで取得し、ローカルで検索します。同梱辞書でオフライン利用できます。辞書管理用の通知領域アイコンを右クリックし、「公開辞書を更新」を選べます。`ime_settings.exe` からも更新できます。Windows標準のPowerShellを内部で使うため、追加の実行環境は不要です。出力は `%LOCALAPPDATA%\ImeMixed\public_dictionary.tsv` で、個人辞書とは別です。更新器はソースサイズと収録件数・必須候補を検証し、一時ファイルから置換します。更新日時／元データのSHA-256は隣の `public_dictionary.sources.json` に保存します。
+入力文をサーバーへ送らず、上記2つの固定URLから辞書ファイルだけをHTTPSで取得します。同梱辞書でオフライン利用できます。通知領域アイコンの右クリックか設定画面から「公開辞書を更新」を選んでください。Windows標準のPowerShell/.NETを内部で使います。出力は `%LOCALAPPDATA%\ImeMixed\public_dictionary.tsv`、個人辞書とは別です。更新器は圧縮前後のサイズ、収録件数、必須候補を検証して置換し、出典とSHA-256を隣の `.sources.json` に保存します。旧形式のキャッシュが残っている場合は新しい同梱辞書を使います。
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\update_public_dictionary.ps1
@@ -99,7 +107,7 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\update_public_dictionary.p
 5. 複数アプリでのエンジン常駐メモリと起動時間、共有サービス化の評価。現在はTIPインスタンス単位の子プロセス。
 6. 別ユーザー／利用者のクリーン環境へのインストール、設定画面の視覚・スクリーンリーダー評価。CI上でのビルド、インストール、削除のスモーク試験は通過済み。
 
-公開配布を行う場合は、上記に加えて発行者署名と依存バイナリ／モデルの配布条件・NOTICEの最終確認が必要です。今回の個人評価では署名は要求しません。
+正式版に向けて、依存バイナリ／モデルのNOTICE確認と上記の互換性・機能検証を継続します。今回の評価版にコード署名はありません。
 
 各項目の根拠・実測値は `audit/2026-09-25/release/` と修正報告を参照してください。旧38件の監査報告を「全件解決」とは扱いません。
 

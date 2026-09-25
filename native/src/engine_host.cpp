@@ -57,14 +57,16 @@ int wmain(int argc, wchar_t** argv) {
       } else if (ec && dictionary.size() && !std::filesystem::exists(dictionary_path)) {
         dictionary = ime::UserDictionary(); ime::AzookeySetUserDictionary("[]"); dictionary_time = {};
       }
-      auto public_path = std::filesystem::exists(public_override) ? public_override : public_bundled;
+      auto public_path = ime::PublicDictionaryPath(public_bundled, public_override);
       std::error_code public_error;
       auto public_stamp = std::filesystem::last_write_time(public_path, public_error);
       if (!public_error && (public_path != public_loaded_path || public_stamp != public_time)) {
         std::string error;
-        if (public_dictionary.Load(public_path, &error)) {
+        if (public_dictionary.Load(public_path, &error, true)) {
           public_loaded_path = public_path;
           public_time = public_stamp;
+        } else if (public_loaded_path.empty() && public_path != public_bundled) {
+          if (public_dictionary.Load(public_bundled, &error, true)) public_loaded_path = public_bundled;
         }
       }
       auto result = ime::Decode(request);

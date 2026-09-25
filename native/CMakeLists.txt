@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ime_mixed_native VERSION 0.2.7 LANGUAGES CXX RC)
+project(ime_mixed_native VERSION 0.2.8 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -63,7 +63,7 @@ target_link_libraries(bench_zenzai PRIVATE ime_engine)
 target_link_libraries(quality_typo_long PRIVATE ime_engine)
 target_link_libraries(debug_quality PRIVATE ime_engine)
 target_link_libraries(dump_azo PRIVATE ime_engine)
-target_link_libraries(debug_dump PRIVATE ime_engine)
+target_link_libraries(debug_dump PRIVATE ime_dictionary ime_engine)
 
 add_library(ime_mixed_tip SHARED
   src/tip/dllmain.cpp
@@ -84,9 +84,9 @@ target_sources(ime_tray PRIVATE src/version.rc)
 
 # E2E: tip + driver to separate dir to avoid file lock on Release\ime_mixed_tip.dll
 # Unique output name each config regenerate avoids chrome/opencode holding previous dll
-set(E2E_OUT ${CMAKE_BINARY_DIR}/e2e_out_v11)
+set(E2E_OUT ${CMAKE_BINARY_DIR}/e2e_out_v12)
 set_target_properties(ime_mixed_tip PROPERTIES
-  OUTPUT_NAME "ime_mixed_tip_v11"
+  OUTPUT_NAME "ime_mixed_tip_v12"
   RUNTIME_OUTPUT_DIRECTORY ${E2E_OUT}
   RUNTIME_OUTPUT_DIRECTORY_RELEASE ${E2E_OUT}
   RUNTIME_OUTPUT_DIRECTORY_DEBUG ${E2E_OUT}

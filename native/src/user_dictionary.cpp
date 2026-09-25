@@ -4,22 +4,41 @@
 #include <fstream>
 #include <algorithm>
 #include <set>
+#include <cstring>
 #include "nlohmann/json.hpp"
 namespace ime {
+std::filesystem::path PublicDictionaryPath(const std::filesystem::path& bundled,
+                                           const std::filesystem::path& cached) {
+  // An old, symbol-only cache must not mask the expanded bundled dictionary
+  // after an upgrade. The updater writes versioned provenance alongside it.
+  std::error_code ec;
+  if (!std::filesystem::exists(cached, ec)) return bundled;
+  auto metadata = cached; metadata.replace_extension(L".sources.json");
+  if (std::filesystem::file_size(metadata, ec)>8192 || ec) return bundled;
+  std::ifstream stream(metadata, std::ios::binary);
+  auto json=nlohmann::json::parse(stream, nullptr, false);
+  if (!json.is_object() || !json.contains("format_version") ||
+      !json["format_version"].is_number_integer() || json["format_version"]!=2) return bundled;
+  return cached;
+}
 std::filesystem::path UserDictionaryPath() {
   PWSTR folder = nullptr;
   if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &folder))) return {};
   auto path = std::filesystem::path(folder) / L"ImeMixed" / L"user_dictionary.tsv";
   CoTaskMemFree(folder); return path;
 }
-bool UserDictionary::Load(const std::filesystem::path& path, std::string* error) {
+bool UserDictionary::Load(const std::filesystem::path& path, std::string* error, bool public_dictionary) {
   auto fail = [&](const char* why) { if (error) *error = why; return false; };
   std::error_code ec;
-  if (std::filesystem::file_size(path, ec) > 4*1024*1024 || ec) return fail("Missing dictionary or size exceeds 4 MiB");
+  const auto max_bytes = public_dictionary ? 32*1024*1024 : 4*1024*1024;
+  if (std::filesystem::file_size(path, ec) > max_bytes || ec) return fail("Missing dictionary or size exceeds limit");
   std::ifstream file(path, std::ios::binary);
   if (!file) return fail("Cannot open dictionary");
   std::map<std::string,std::vector<std::string>> entries;
   std::set<std::string> symbol_only_readings;
+  std::set<std::string> supplemental_readings;
+  std::set<std::string> priority_readings;
+  std::map<std::string,std::vector<std::string>> supplemental_words;
   auto export_entries = nlohmann::json::array();
   std::string line; size_t count = 0, row = 0;
   while (std::getline(file,line)) {
@@ -39,6 +58,11 @@ bool UserDictionary::Load(const std::filesystem::path& path, std::string* error)
     if (std::find(words.begin(),words.end(),word) == words.end()) {
       words.push_back(word); ++count;
       std::string pos = next == std::string::npos ? "noun" : line.substr(next+1, line.find('\t',next+1)-next-1);
+      if (pos == u8"名詞" || pos == "noun") priority_readings.insert(reading);
+      if (pos == u8"補助語") {
+        supplemental_readings.insert(reading);
+        supplemental_words[reading].push_back(word);
+      }
       if (words.size() == 1 && (pos == u8"記号" || pos == "symbol")) symbol_only_readings.insert(reading);
       else if (pos != u8"記号" && pos != "symbol") symbol_only_readings.erase(reading);
       static const std::map<std::string,std::string> categories{
@@ -47,19 +71,29 @@ bool UserDictionary::Load(const std::filesystem::path& path, std::string* error)
         {u8"形容詞","adjective"},{u8"副詞","adverb"},{u8"感動詞","interjection"},{u8"記号","symbol"}};
       auto category = categories.find(pos);
       if (category != categories.end()) pos = category->second;
-      export_entries.push_back({{"reading",reading},{"word",word},{"pos",pos}});
+      if (!public_dictionary) export_entries.push_back({{"reading",reading},{"word",word},{"pos",pos}});
     }
-    if (count > 100000 || words.size() > 32) return fail("Too many entries (100000 total, 32 per reading)");
+    if (count > (public_dictionary ? 700000 : 100000) || words.size() > 32) return fail("Too many dictionary entries");
   }
   if (!file.eof()) return fail("Dictionary read failed");
   auto json = export_entries.dump();
   entries_ = std::move(entries); symbol_only_readings_ = std::move(symbol_only_readings);
+  supplemental_readings_ = std::move(supplemental_readings);
+  priority_readings_ = std::move(priority_readings);
+  supplemental_words_ = std::move(supplemental_words);
   count_ = count; json_ = std::move(json);
   if (error) error->clear(); return true;
 }
 void UserDictionary::Apply(const DecodeInput& input, std::vector<Candidate>* candidates,
                            bool public_dictionary) const {
-  if (entries_.empty() || input.raw_text.size() > 512 || input.field == "code" || input.field == "identifier" || input.candidate_limit <= 0) return;
+  ApplyExact(input, candidates, public_dictionary);
+  if (public_dictionary) ApplyCorrections(input, candidates);
+}
+void UserDictionary::ApplyExact(const DecodeInput& input, std::vector<Candidate>* candidates,
+                                bool public_dictionary) const {
+  if (entries_.empty() || input.raw_text.size() > 512 || input.candidate_limit <= 0 ||
+      input.field == "code" || input.field == "identifier" || input.field == "password" ||
+      input.field == "url" || input.field == "path" || input.field == "email") return;
   bool ok = false;
   auto reading = ConvertRomaji(input.raw_text, &ok);
   if (!ok && public_dictionary) {
@@ -72,6 +106,7 @@ void UserDictionary::Apply(const DecodeInput& input, std::vector<Candidate>* can
           (static_cast<unsigned char>(reading[end]) & 0xc0) == 0x80) continue;
       auto found = entries_.find(reading.substr(0, end));
       if (found == entries_.end()) continue;
+      if (supplemental_readings_.count(found->first) && !priority_readings_.count(found->first)) continue;
       size_t raw_end = 0;
       for (size_t i = 1; i <= input.raw_text.size(); ++i) {
         bool prefix_ok = false;
@@ -143,7 +178,8 @@ void UserDictionary::Apply(const DecodeInput& input, std::vector<Candidate>* can
     }
   }
   const bool preserve_primary = public_dictionary && exact &&
-      symbol_only_readings_.count(reading) && !first_is_arrow;
+      ((symbol_only_readings_.count(reading) && !first_is_arrow) ||
+       (supplemental_readings_.count(reading) && !priority_readings_.count(reading)));
   if ((!exact || preserve_primary) && !candidates->empty()) {
     combined.push_back(candidates->front()); seen.insert(candidates->front().output_text);
   }
@@ -160,5 +196,125 @@ void UserDictionary::Apply(const DecodeInput& input, std::vector<Candidate>* can
     if (combined.size() == limit) combined.pop_back(); combined.push_back(raw);
   }
   *candidates = std::move(combined);
+}
+
+void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Candidate>* candidates) const {
+  // Query edits against the indexed lexicon first; never run the converter for
+  // hundreds of speculative readings. Original input remains selectable.
+  if (input.field != "prose" || input.candidate_limit < 2 || supplemental_readings_.empty()) return;
+  auto raw = input.raw_text;
+  std::string punctuation;
+  if (!raw.empty() && raw.back() == '.') { raw.pop_back(); punctuation = u8"。"; }
+  if (raw.size() < 6 || raw.size() > 64 ||
+      raw.find_first_not_of("abcdefghijklmnopqrstuvwxyz-'") != std::string::npos) return;
+  bool original_ok = false;
+  const auto original = ConvertRomaji(raw, &original_ok);
+  if (entries_.count(original)) return; // valid dictionary words are never corrected
+
+  struct Repair { int cost; bool promote; };
+  std::map<std::string, Repair> readings;
+  auto try_raw = [&](std::string edited, int cost, bool promote = false) {
+    bool ok = false;
+    auto reading = ConvertRomaji(edited, &ok);
+    if (!ok || reading == original) return;
+    auto it = readings.find(reading);
+    if (it == readings.end() || cost < it->second.cost) readings[reading] = {cost, promote};
+  };
+  // Moraic n before a vowel is ambiguous in casual romaji. Keep the ordinary
+  // ni/na/... interpretation in ConvertRomaji and ask the dictionary about n'i.
+  for (size_t i=0; i<raw.size(); ++i) {
+    if (raw[i]=='n' && i+1<raw.size() && std::strchr("aiueoy",raw[i+1]))
+      try_raw(raw.substr(0,i+1)+"'"+raw.substr(i+1), 5, true);
+    if (raw[i]=='n' && i+2<raw.size() && raw[i+1]=='n' && std::strchr("aiueoy",raw[i+2]))
+      try_raw(raw.substr(0,i)+"n'"+raw.substr(i+2), 5, true);
+    if (raw[i]=='m' && i+1<raw.size() && std::strchr("bmp",raw[i+1])) {
+      auto edited=raw; edited[i]='n'; try_raw(edited, 8, true);
+    }
+    if (i+1<raw.size() && raw[i]==raw[i+1])
+      try_raw(raw.substr(0,i)+raw.substr(i+1), 8, true);
+    if (i+1<raw.size() && raw[i]!=raw[i+1]) {
+      auto edited=raw; std::swap(edited[i],edited[i+1]); try_raw(edited, 12);
+    }
+    if (raw[i]=='-') {
+      // A long-vowel key can land one syllable too late/early while typing.
+      auto without=raw.substr(0,i)+raw.substr(i+1);
+      const auto begin=i>3?i-3:0;
+      for(size_t j=begin;j<=std::min(without.size(),i+3);++j)
+        if(j!=i) try_raw(without.substr(0,j)+"-"+without.substr(j),18);
+    }
+    try_raw(raw.substr(0,i)+raw.substr(i+1), 20);
+    // One mistyped key, including vowel errors; dictionary membership is the
+    // filter, not the first edit that happens to be romanizable.
+    for (char ch : std::string("abcdefghijklmnopqrstuvwxyz-")) {
+      if (ch==raw[i]) continue;
+      auto edited=raw; edited[i]=ch; try_raw(edited, 24);
+    }
+  }
+  // Missing key / long vowel. Bound the work by raw length and one edit.
+  for (size_t i=0; i<=raw.size(); ++i)
+    for (char ch : std::string("aiueon-"))
+      try_raw(raw.substr(0,i)+ch+raw.substr(i), ch=='-' ? 12 : 24);
+
+  struct Match { std::string reading, suffix; Repair repair; };
+  std::vector<Match> matches;
+  for (const auto& [reading, repair] : readings) {
+    for (size_t end=reading.size(); end>=12; --end) {
+      if (end<reading.size() && (static_cast<unsigned char>(reading[end])&0xc0)==0x80) continue;
+      auto prefix=reading.substr(0,end);
+      if (!supplemental_readings_.count(prefix) || original.compare(0,end,prefix)==0) continue;
+      auto suffix=reading.substr(end);
+      if (!suffix.empty()) {
+        bool grammatical=false;
+        for (auto particle : {u8"を",u8"に",u8"が",u8"は",u8"で",u8"と",u8"も",u8"の",u8"へ",u8"する",u8"して",u8"した"})
+          if (suffix.compare(0,std::strlen(particle),particle)==0) grammatical=true;
+        if (!grammatical || end*2<reading.size()) continue;
+      }
+      matches.push_back({std::move(prefix),std::move(suffix),repair});
+      break;
+    }
+  }
+  if (matches.empty()) return;
+  std::stable_sort(matches.begin(),matches.end(),[](const Match& a,const Match& b) {
+    if (a.repair.cost!=b.repair.cost) return a.repair.cost<b.repair.cost;
+    return a.reading.size()>b.reading.size();
+  });
+  // Strong normalization may lead, but ambiguous one-key edits stay suggestions.
+  bool promote=matches.front().repair.promote &&
+      (matches.size()==1 || matches[1].repair.cost>matches[0].repair.cost);
+  // A valid unedited dictionary prefix protects an already correct sentence.
+  for (size_t end=original.size(); promote && end>=12; --end) {
+    if (entries_.count(original.substr(0,end)) && end+6>=matches.front().reading.size()) {
+      const auto suffix=original.substr(end);
+      for(auto particle : {u8"を",u8"に",u8"が",u8"は",u8"で",u8"と",u8"も",u8"の",u8"へ"})
+        if(suffix.compare(0,std::strlen(particle),particle)==0) promote=false;
+    }
+  }
+  if (!candidates->empty() && candidates->front().output_text==input.raw_text) promote=false;
+  std::vector<Candidate> combined;
+  std::set<std::string> seen;
+  auto append=[&](const Candidate& c) { if(seen.insert(c.output_text).second) combined.push_back(c); };
+  if (!promote && !candidates->empty()) append(candidates->front());
+  for (size_t i=0; i<matches.size() && i<3; ++i) {
+    const auto& match=matches[i];
+    auto suffix=match.suffix;
+    if (!suffix.empty()) {
+      auto converted=AzookeyConvert(suffix,1);
+      if (!converted.empty()) suffix=converted.front();
+    }
+    const auto& words=supplemental_words_.at(match.reading);
+    for(size_t j=0;j<words.size() && j<2;++j) {
+      Candidate c; c.output_text=words[j]+suffix+punctuation;
+      c.reading_text=match.reading+match.suffix; c.edit_cost=match.repair.cost/10.0;
+      append(c);
+    }
+  }
+  for (const auto& c:*candidates) append(c);
+  const auto limit=static_cast<size_t>(input.candidate_limit);
+  if(combined.size()>limit) combined.resize(limit);
+  if(std::none_of(combined.begin(),combined.end(),[&](const Candidate& c){return c.output_text==input.raw_text;})) {
+    if(combined.size()==limit) combined.pop_back();
+    Candidate c; c.output_text=c.reading_text=input.raw_text;c.is_raw=true;combined.push_back(c);
+  }
+  *candidates=std::move(combined);
 }
 }

@@ -1,5 +1,5 @@
-#define AppVersion "0.2.7-preview"
-#define PackageRoot AddBackslash(SourcePath) + "..\dist\yomitsugu-0.2.7-preview"
+#define AppVersion "0.2.8-preview"
+#define PackageRoot AddBackslash(SourcePath) + "..\dist\yomitsugu-0.2.8-preview"
 #define OutputRoot AddBackslash(SourcePath) + "..\dist\installer"
 
 [Setup]
@@ -26,12 +26,12 @@ Compression=lzma2
 SolidCompression=yes
 CloseApplications=no
 RestartApplications=no
-VersionInfoVersion=0.2.7.0
+VersionInfoVersion=0.2.8.0
 VersionInfoDescription=Yomitsugu preview installer
 
 [Files]
-Source: "{#PackageRoot}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "ime_mixed_tip_v11.dll"
-Source: "{#PackageRoot}\ime_mixed_tip_v11.dll"; DestDir: "{app}"; Flags: ignoreversion regserver 64bit
+Source: "{#PackageRoot}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "ime_mixed_tip_v12.dll"
+Source: "{#PackageRoot}\ime_mixed_tip_v12.dll"; DestDir: "{app}"; Flags: ignoreversion regserver 64bit
 
 [Icons]
 Name: "{autoprograms}\Yomitsugu\設定と辞書"; Filename: "{app}\ime_settings.exe"

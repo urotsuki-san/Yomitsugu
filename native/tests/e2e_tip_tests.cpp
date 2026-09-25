@@ -38,7 +38,7 @@ static void Expect(bool cond, const char* name, const std::string& detail = "") 
 }
 
 static void PrintTipDiagnostics(const char* phase) {
-  HMODULE module = GetModuleHandleW(L"ime_mixed_tip_v11.dll");
+  HMODULE module = GetModuleHandleW(L"ime_mixed_tip_v12.dll");
   auto get = module ? reinterpret_cast<ImeTipGetDiagnosticsFn>(
                           GetProcAddress(module, "ImeTipGetDiagnostics")) : nullptr;
   TipDiagnostics d{};
@@ -380,7 +380,7 @@ int main(int argc, char** argv) {
               GetForegroundWindow() == g_hMain ? 1 : 0,
               GetFocus() == g_hEdit ? 1 : 0,
               LOWORD(reinterpret_cast<ULONG_PTR>(GetKeyboardLayout(0))));
-  std::printf("E2E TIP module_loaded=%d\n", GetModuleHandleW(L"ime_mixed_tip_v11.dll") ? 1 : 0);
+  std::printf("E2E TIP module_loaded=%d\n", GetModuleHandleW(L"ime_mixed_tip_v12.dll") ? 1 : 0);
 
   // The Windows input indicator must expose this TIP's あ menu item.
   {

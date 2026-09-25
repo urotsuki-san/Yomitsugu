@@ -1,10 +1,10 @@
 ﻿$ErrorActionPreference = 'Stop'
 $taskRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$taskPackage = Join-Path $taskRoot 'dist/yomitsugu-0.2.7-preview'
+$taskPackage = Join-Path $taskRoot 'dist/yomitsugu-0.2.8-preview'
 if (Test-Path -LiteralPath $taskPackage) { throw 'Package directory already exists; use a new version instead of overwriting.' }
 New-Item -ItemType Directory -Path $taskPackage -Force | Out-Null
-Copy-Item -LiteralPath (Join-Path $taskRoot 'native/build/e2e_out_v11/ime_mixed_tip_v11.dll') -Destination $taskPackage
-Copy-Item -LiteralPath (Join-Path $taskRoot 'native/build/e2e_out_v11/engine') -Destination $taskPackage -Recurse
+Copy-Item -LiteralPath (Join-Path $taskRoot 'native/build/e2e_out_v12/ime_mixed_tip_v12.dll') -Destination $taskPackage
+Copy-Item -LiteralPath (Join-Path $taskRoot 'native/build/e2e_out_v12/engine') -Destination $taskPackage -Recurse
 Copy-Item -LiteralPath (Join-Path $taskRoot 'native/build/Release/ime_dictionary_tool.exe') -Destination $taskPackage
 Copy-Item -LiteralPath (Join-Path $taskRoot 'native/build/Release/ime_settings.exe') -Destination $taskPackage
 Copy-Item -LiteralPath (Join-Path $taskRoot 'native/build/Release/ime_tray.exe') -Destination $taskPackage
@@ -13,6 +13,7 @@ foreach ($taskPattern in @('msvcp140*.dll','vcruntime140*.dll','concrt140.dll'))
 }
 foreach ($taskScript in @('install_preview.ps1','uninstall_preview.ps1')) { Copy-Item -LiteralPath (Join-Path $taskRoot "native/scripts/$taskScript") -Destination $taskPackage }
 Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/update_public_dictionary.ps1') -Destination $taskPackage
+Copy-Item -LiteralPath (Join-Path $taskRoot 'scripts/PublicDictionaryBuilder.cs') -Destination $taskPackage
 Copy-Item -LiteralPath (Join-Path $taskRoot 'RELEASE.md') -Destination (Join-Path $taskPackage 'README.md')
 Copy-Item -LiteralPath (Join-Path $taskRoot 'THIRD_PARTY.md') -Destination $taskPackage
 Copy-Item -LiteralPath (Join-Path $taskRoot 'LICENSE') -Destination $taskPackage
@@ -33,7 +34,7 @@ $taskLicenses = @{
 }
 foreach ($taskName in $taskLicenses.Keys) { Copy-Item -LiteralPath (Join-Path $taskRoot $taskLicenses[$taskName]) -Destination (Join-Path $taskNotices $taskName) }
 $taskManifest = [ordered]@{
-    version='0.2.7-preview'; architecture='x64'; public_release_ready=$false;
+    version='0.2.8-preview'; architecture='x64'; public_release_ready=$false;
     created_utc=(Get-Date).ToUniversalTime().ToString('o');
     upstream_myime='a8486eca5312556ff88fed7f1850a28843b67977';
     dictionary='4d418525b090cf49c219819d05a7e3cc2a4346eb';

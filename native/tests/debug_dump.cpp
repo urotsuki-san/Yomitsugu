@@ -1,7 +1,11 @@
 #include "ime_engine.h"
 #include <cstdio>
 #include <cstring>
+#include <iostream>
 #include <string>
+#include <windows.h>
+#include <chrono>
+#include "user_dictionary.h"
 
 using namespace ime;
 
@@ -58,8 +62,55 @@ static bool ReadmeDemo() {
 }
 
 int main(int argc, char** argv) {
+  if (argc == 2 && std::strcmp(argv[1], "--runtime-json") == 0) {
+    if (!AzookeyEnsureReady()) return 2;
+    auto module = GetModuleHandleW(L"azookey-engine.dll");
+    auto convert = reinterpret_cast<const char* (*)(const char*, int)>(GetProcAddress(module, "ConvertText"));
+    auto freeString = reinterpret_cast<void (*)(const char*)>(GetProcAddress(module, "FreeString"));
+    if (!convert || !freeString) return 3;
+    std::string raw;
+    while (std::getline(std::cin, raw)) {
+      if (!raw.empty() && raw.back() == '\r') raw.pop_back();
+      bool ok = false;
+      const auto reading = ConvertRomaji(raw, &ok);
+      const char* json = convert(reading.c_str(), 0);
+      std::printf("RUNTIME\t%s\t%s\n", raw.c_str(), json ? json : "null");
+      if (json) freeString(json);
+    }
+    return 0;
+  }
   if (argc == 2 && std::strcmp(argv[1], "--readme-demo") == 0)
     return ReadmeDemo() ? 0 : 1;
+  if (argc == 2 && std::strcmp(argv[1], "--probe") == 0) {
+    if (!AzookeyEnsureReady()) return 2;
+    wchar_t path[32768]{};
+    GetModuleFileNameW(nullptr, path, 32768);
+    UserDictionary dictionary;
+    std::string error;
+    if (!dictionary.Load(std::filesystem::path(path).parent_path()/L"public_dictionary.tsv", &error, true)) return 3;
+    std::string raw;
+    while (std::getline(std::cin, raw)) {
+      if (!raw.empty() && raw.back() == '\r') raw.pop_back();
+      if (raw.empty()) continue;
+      DecodeInput in;
+      in.raw_text = raw; in.field = "prose"; in.phase = "end_of_phrase";
+      in.candidate_limit = 16;
+      const auto start = std::chrono::steady_clock::now();
+      auto candidates = Decode(in);
+      dictionary.Apply(in, &candidates, true);
+      const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now()-start).count();
+      bool ok = false;
+      const auto reading = ConvertRomaji(raw, &ok);
+      std::printf("PROBE\t%s\t%s\t%d\t%.3f", raw.c_str(), reading.c_str(), ok ? 1 : 0, ms);
+      for (const auto& candidate : candidates) std::printf("\t%s", candidate.output_text.c_str());
+      std::printf("\n");
+    }
+    return 0;
+  }
+  if (argc > 1) {
+    for (int i = 1; i < argc; ++i) Dump(argv[i], argv[i], "end_of_phrase", false);
+    return 0;
+  }
   Dump("U01", "Githubnoripojitoriwokousinnsitekudasai", "sentence_end", true);
   Dump("U01-ja", "noripojitoriwokousinnsitekudasai", "end_of_phrase", false);
   Dump("U02", "konnitiwa", "sentence_end", true);

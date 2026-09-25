@@ -1,0 +1,94 @@
+{
+  "before": {
+    "groups": {
+      "loanword": {
+        "total": 31,
+        "top1": 17,
+        "top5": 17,
+        "top16": 17
+      },
+      "typo": {
+        "total": 23,
+        "top1": 0,
+        "top5": 0,
+        "top16": 0
+      },
+      "general": {
+        "total": 16,
+        "top1": 14,
+        "top5": 15,
+        "top16": 15
+      },
+      "preserve": {
+        "total": 5,
+        "top1": 5,
+        "top5": 5,
+        "top16": 5
+      },
+      "mixed": {
+        "total": 3,
+        "top1": 3,
+        "top5": 3,
+        "top16": 3
+      },
+      "sentence": {
+        "total": 7,
+        "top1": 2,
+        "top5": 3,
+        "top16": 3
+      }
+    },
+    "warm_ms": {
+      "median": 49.963,
+      "p95": 177.219,
+      "maximum": 347.654
+    }
+  },
+  "after": {
+    "groups": {
+      "loanword": {
+        "total": 31,
+        "top1": 31,
+        "top5": 31,
+        "top16": 31
+      },
+      "typo": {
+        "total": 23,
+        "top1": 6,
+        "top5": 20,
+        "top16": 20
+      },
+      "general": {
+        "total": 16,
+        "top1": 14,
+        "top5": 16,
+        "top16": 16
+      },
+      "preserve": {
+        "total": 5,
+        "top1": 5,
+        "top5": 5,
+        "top16": 5
+      },
+      "mixed": {
+        "total": 3,
+        "top1": 3,
+        "top5": 3,
+        "top16": 3
+      },
+      "sentence": {
+        "total": 7,
+        "top1": 6,
+        "top5": 7,
+        "top16": 7
+      }
+    },
+    "warm_ms": {
+      "median": 21.0925,
+      "p95": 58.852,
+      "maximum": 110.518
+    }
+  },
+  "method": "85 fixed full-output cases; same order; first conversion excluded from latency. Field controls are also tested natively. Not a representative population estimate.",
+  "fixture_corrections": "Two nonstandard spellings were categorized as typos; kanin is a reading-preservation control, not an asserted reading of 下人. Baseline ranks were recomputed from saved candidates, with no rerun or omitted cases."
+}

@@ -19,7 +19,7 @@ from urllib.request import Request, urlopen
 
 SOURCES = {
     "mozc_symbols": "https://raw.githubusercontent.com/google/mozc/master/src/data/symbol/symbol.tsv",
-    "edrdg_edict2": "https://www.edrdg.org/pub/Nihongo/edict2.gz",
+    "edrdg_edict2": "https://www.edrdg.org/pub/Nihongo/edict2u.gz",
 }
 MAX_SOURCE_BYTES = {"mozc_symbols": 2_000_000, "edrdg_edict2": 20_000_000}
 ROOT = Path(__file__).resolve().parent.parent
@@ -44,23 +44,70 @@ def to_hiragana(value: str) -> str:
     return "".join(chr(ord(c) - 0x60) if "ァ" <= c <= "ヶ" else c for c in value)
 
 
+def lexical_entries(head: str, glosses: str):
+    """EDICT2 headwords, not English gloss translations. Respect reading restrictions.
+
+    Supplement loanwords and common words, leaving inflection and word costs to
+    the main converter. Obsolete/irregular forms are not correction targets.
+    """
+    match = re.fullmatch(r"(.+?) \[([^]]+)\]", head)
+    forms = (match.group(1) if match else head).split(';')
+    readings = match.group(2).split(';') if match else forms
+    common = '(P)' in glosses or '(P)' in head
+    noun = bool(re.search(r'\(n(?:[,)-]|$)', glosses))
+    for form in forms:
+        word = re.sub(r'\([^)]*\)', '', form).strip()
+        loanword = bool(re.fullmatch(r'[ァ-ヶー・]{2,30}', word))
+        if not loanword and not common and not noun:
+            continue
+        if re.search(r'\((?:ik|iK|io|oK)\)', form):
+            continue
+        if re.search(r'\((?:arch|obs|obsc)\)', glosses) and not common:
+            continue
+        for annotated in readings:
+            annotations = re.findall(r'\(([^)]*)\)', annotated)
+            if any(flag in {'ik','ok','gikun'} for flag in annotations):
+                continue
+            restrictions = [flag for flag in annotations if flag not in {'P'}]
+            if restrictions and not any(word in flag.split(',') for flag in restrictions):
+                continue
+            reading = to_hiragana(re.sub(r'\([^)]*\)', '', annotated).strip())
+            if is_kana_reading(reading):
+                yield reading, word, '補助語'
+
+
 def build_rows(symbol_data: bytes, edict_data: bytes) -> tuple[list[tuple[str, str, str]], dict[str, int]]:
     rows: dict[str, list[tuple[str, str]]] = {}
 
     def add(reading: str, surface: str, pos: str) -> None:
-        if not is_kana_reading(reading) or not surface or len(surface) > 48:
+        if not is_kana_reading(reading) or not surface or len(surface) > 48 or '\ufffd' in surface:
             return
         values = rows.setdefault(reading, [])
-        if len(values) < 32 and not any(existing == surface for existing, _ in values):
+        for index, (existing, old_pos) in enumerate(values):
+            if existing == surface:
+                if old_pos == '補助語' and pos != '補助語':
+                    values[index] = (surface, pos)
+                return
+        if len(values) < 32:
             values.append((surface, pos))
 
     term_count = 0
-    glossary = gzip.decompress(edict_data).decode("euc-jp", errors="replace")
+    lexical_count = 0
+    import io
+    with gzip.GzipFile(fileobj=io.BytesIO(edict_data)) as compressed:
+        expanded = compressed.read(128 * 1024 * 1024 + 1)
+    if len(expanded) > 128 * 1024 * 1024:
+        raise ValueError('Expanded dictionary exceeds size limit')
+    glossary = expanded.decode("utf-8-sig")
     for line in glossary.splitlines():
-        if "{comp}" not in line:
-            continue
         head, sep, glosses = line.partition(" /")
         if not sep:
+            continue
+        for reading, word, pos in lexical_entries(head, glosses):
+            before = len(rows.get(reading, []))
+            add(reading, word, pos)
+            lexical_count += len(rows.get(reading, [])) > before
+        if "{comp}" not in line:
             continue
         reading_match = re.search(r"\[([^]]+)\]", head)
         reading = reading_match.group(1) if reading_match else head.split(";")[0].strip()
@@ -85,13 +132,18 @@ def build_rows(symbol_data: bytes, edict_data: bytes) -> tuple[list[tuple[str, s
             add(reading, surface, "記号")
             symbol_count += len(rows.get(reading, [])) > before
 
-    flat = [(reading, word, pos) for reading, values in sorted(rows.items()) for word, pos in values]
-    if not (500 <= symbol_count <= 20000 and 10 <= term_count <= 10000):
+    flat = [(reading, word, pos) for reading, values in sorted(rows.items())
+            for word, pos in sorted(values, key=lambda item: item[1] == '補助語')]
+    symbol_count = sum(pos == '記号' for _, _, pos in flat)
+    term_count = sum(pos == '名詞' for _, _, pos in flat)
+    lexical_count = sum(pos == '補助語' for _, _, pos in flat)
+    if not (500 <= symbol_count <= 20000 and 10 <= term_count <= 10000 and 20000 <= lexical_count <= 650000):
         raise ValueError(f"Source coverage changed: symbols={symbol_count}, terms={term_count}")
     required = {("りーどみー", "README"), ("やじるし", "→"), ("まる", "○")}
     if not required.issubset({(reading, word) for reading, word, _ in flat}):
         raise ValueError("Public dictionary is missing expected entries")
-    return flat, {"readings": len(rows), "symbols": symbol_count, "computing_terms": term_count, "entries": len(flat)}
+    return flat, {"readings": len(rows), "symbols": symbol_count, "computing_terms": term_count,
+                  "lexical_entries": lexical_count, "entries": len(flat)}
 
 
 def atomic_write(path: Path, payload: bytes) -> None:
@@ -114,10 +166,10 @@ def main() -> None:
     output = PACKAGE_OUTPUT if args.package_output else USER_OUTPUT
     payload = ("# Sources: Mozc symbol.tsv (BSD-3-Clause); EDRDG EDICT2 (CC BY-SA 4.0)\n"
                + "".join(f"{reading}\t{word}\t{pos}\n" for reading, word, pos in rows)).encode("utf-8")
-    if len(payload) > 4 * 1024 * 1024:
+    if len(payload) > 32 * 1024 * 1024:
         raise ValueError("Generated dictionary exceeds engine limit")
     atomic_write(output, payload)
-    metadata = {"source_urls": SOURCES, "source_sha256": {name: hashlib.sha256(data).hexdigest() for name, data in sources.items()},
+    metadata = {"format_version": 2, "source_urls": SOURCES, "source_sha256": {name: hashlib.sha256(data).hexdigest() for name, data in sources.items()},
                 "output_sha256": hashlib.sha256(payload).hexdigest(), **counts}
     atomic_write(output.with_suffix(".sources.json"), (json.dumps(metadata, ensure_ascii=False, indent=2) + "\n").encode("utf-8"))
     print(f"Updated public dictionary: {output}")

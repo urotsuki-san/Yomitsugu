@@ -16,58 +16,21 @@
 namespace ime {
 namespace {
 
-const std::unordered_map<std::string, std::string>& RomajiTable() {
-  static const std::unordered_map<std::string, std::string>* table = [] {
-    auto* t = new std::unordered_map<std::string, std::string>();
-    const std::pair<const char*, const char*> entries[] = {
-        {"a", "あ"}, {"i", "い"}, {"u", "う"}, {"e", "え"}, {"o", "お"},
-        {"ka", "か"}, {"ki", "き"}, {"ku", "く"}, {"ke", "け"}, {"ko", "こ"},
-        {"ga", "が"}, {"gi", "ぎ"}, {"gu", "ぐ"}, {"ge", "げ"}, {"go", "ご"},
-        {"sa", "さ"}, {"si", "し"}, {"su", "す"}, {"se", "せ"}, {"so", "そ"},
-        {"sha", "しゃ"}, {"shi", "し"}, {"shu", "しゅ"}, {"she", "しぇ"}, {"sho", "しょ"},
-        {"sya", "しゃ"}, {"syu", "しゅ"}, {"syo", "しょ"},
-        {"za", "ざ"}, {"zi", "じ"}, {"zu", "ず"}, {"ze", "ぜ"}, {"zo", "ぞ"},
-        {"ja", "じゃ"}, {"ji", "じ"}, {"ju", "じゅ"}, {"je", "じぇ"}, {"jo", "じょ"},
-        {"jya", "じゃ"}, {"jyu", "じゅ"}, {"jyo", "じょ"}, {"zya", "じゃ"}, {"zyu", "じゅ"}, {"zyo", "じょ"},
-        {"ta", "た"}, {"ti", "ち"}, {"tu", "つ"}, {"te", "て"}, {"to", "と"},
-        {"cha", "ちゃ"}, {"chi", "ち"}, {"chu", "ちゅ"}, {"che", "ちぇ"}, {"cho", "ちょ"},
-        {"tya", "ちゃ"}, {"tyu", "ちゅ"}, {"tyo", "ちょ"},
-        {"tsu", "つ"}, {"tsa", "つぁ"}, {"tsi", "つぃ"}, {"tse", "つぇ"}, {"tso", "つぉ"},
-        {"da", "だ"}, {"di", "ぢ"}, {"du", "づ"}, {"de", "で"}, {"do", "ど"},
-        {"na", "な"}, {"ni", "に"}, {"nu", "ぬ"}, {"ne", "ね"}, {"no", "の"},
-        {"ha", "は"}, {"hi", "ひ"}, {"hu", "ふ"}, {"he", "へ"}, {"ho", "ほ"},
-        {"fu", "ふ"}, {"fa", "ふぁ"}, {"fi", "ふぃ"}, {"fe", "ふぇ"}, {"fo", "ふぉ"},
-        {"ba", "ば"}, {"bi", "び"}, {"bu", "ぶ"}, {"be", "べ"}, {"bo", "ぼ"},
-        {"pa", "ぱ"}, {"pi", "ぴ"}, {"pu", "ぷ"}, {"pe", "ぺ"}, {"po", "ぽ"},
-        {"ma", "ま"}, {"mi", "み"}, {"mu", "む"}, {"me", "め"}, {"mo", "も"},
-        {"ya", "や"}, {"yu", "ゆ"}, {"yo", "よ"},
-        {"ra", "ら"}, {"ri", "り"}, {"ru", "る"}, {"re", "れ"}, {"ro", "ろ"},
-        {"wa", "わ"}, {"wo", "を"},
-        {"kya", "きゃ"}, {"kyu", "きゅ"}, {"kyo", "きょ"},
-        {"gya", "ぎゃ"}, {"gyu", "ぎゅ"}, {"gyo", "ぎょ"},
-        {"nya", "にゃ"}, {"nyu", "にゅ"}, {"nyo", "にょ"},
-        {"hya", "ひゃ"}, {"hyu", "ひゅ"}, {"hyo", "ひょ"},
-        {"bya", "びゃ"}, {"byu", "びゅ"}, {"byo", "びょ"},
-        {"pya", "ぴゃ"}, {"pyu", "ぴゅ"}, {"pyo", "ぴょ"},
-        {"mya", "みゃ"}, {"myu", "みゅ"}, {"myo", "みょ"},
-        {"rya", "りゃ"}, {"ryu", "りゅ"}, {"ryo", "りょ"},
-        {"xa", "ぁ"}, {"xi", "ぃ"}, {"xu", "ぅ"}, {"xe", "ぇ"}, {"xo", "ぉ"},
-        {"la", "ぁ"}, {"li", "ぃ"}, {"lu", "ぅ"}, {"le", "ぇ"}, {"lo", "ぉ"},
-        {"xtu", "っ"}, {"ltu", "っ"}, {"xtsu", "っ"}, {"ltsu", "っ"},
-        {"xya", "ゃ"}, {"xyu", "ゅ"}, {"xyo", "ょ"},
-        {"lya", "ゃ"}, {"lyu", "ゅ"}, {"lyo", "ょ"},
-        {"nn", "ん"}, {"xn", "ん"}, {"n'", "ん"},
-        {"va", "ヴぁ"}, {"vi", "ヴぃ"}, {"vu", "ヴ"}, {"ve", "ヴぇ"}, {"vo", "ヴぉ"}, {"v", "ヴ"},
-        {"kwa", "くぁ"}, {"thi", "てぃ"}, {"dhi", "でぃ"},
-        {"-", "ー"}, {".", "。"}, {",", "、"}, {"?", "？"}, {"!", "！"},
-        {":", "："}, {";", "；"}, {"[", "「"}, {"]", "」"},
-        {"0", "０"}, {"1", "１"}, {"2", "２"}, {"3", "３"}, {"4", "４"},
-        {"5", "５"}, {"6", "６"}, {"7", "７"}, {"8", "８"}, {"9", "９"},
+struct RomajiRule { const char* key; const char* output; const char* pending; };
+const std::unordered_map<std::string, RomajiRule>& RomajiTable() {
+  static const auto table = [] {
+    std::unordered_map<std::string, RomajiRule> result;
+    const RomajiRule entries[] = {
+#include "romaji_table.inc"
+      {"?", u8"？", ""}, {"!", u8"！", ""}, {":", u8"：", ""}, {";", u8"；", ""},
+      {"0", u8"０", ""}, {"1", u8"１", ""}, {"2", u8"２", ""}, {"3", u8"３", ""},
+      {"4", u8"４", ""}, {"5", u8"５", ""}, {"6", u8"６", ""}, {"7", u8"７", ""},
+      {"8", u8"８", ""}, {"9", u8"９", ""},
     };
-    for (const auto& e : entries) (*t)[e.first] = e.second;
-    return t;
+    for (const auto& entry : entries) result[entry.key] = entry;
+    return result;
   }();
-  return *table;
+  return table;
 }
 
 struct WordEntry {
@@ -319,8 +282,8 @@ std::string ConvertRomajiImpl(const std::string& src, bool* fully) {
       std::string piece = src.substr(pos, L);
       auto it = table.find(piece);
       if (it != table.end()) {
-        best = L;
-        best_kana = it->second;
+        best = L - std::strlen(it->second.pending);
+        best_kana = it->second.output;
         break;
       }
     }
@@ -732,7 +695,7 @@ struct ProtectRegion {
 std::vector<ProtectRegion> DetectProtect(const std::string& raw, const std::string& field) {
   std::vector<ProtectRegion> out;
   if (field == "url" || field == "path" || field == "email" || field == "code" ||
-      field == "identifier") {
+      field == "identifier" || field == "password") {
     if (!raw.empty()) out.push_back({0, raw.size(), ProtectRegion::kProtect});
     return out;
   }
@@ -1147,16 +1110,19 @@ std::vector<std::vector<std::pair<Kind, std::pair<size_t, size_t>>>> RegionHyps(
   cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
   cuts.erase(std::remove_if(cuts.begin(), cuts.end(), [n](size_t c) { return c == 0 || c >= n; }),
              cuts.end());
+  // Hyphens and apostrophes belong to a romanized reading. Splitting at a
+  // long vowel used to give the fragments an extra language-score bonus and
+  // crowd the full dictionary word out of the candidate list.
+  if (whole_romaji) {
+    cuts.erase(std::remove_if(cuts.begin(), cuts.end(), [&](size_t c) {
+      return text[c - 1] == '-' || text[c] == '-' || text[c - 1] == '\'' || text[c] == '\'';
+    }), cuts.end());
+  }
   if (cuts.size() > 24) cuts.resize(24);
 
   for (size_t c : cuts) {
     hyps.push_back({{Kind::kEn, {0, c}}, {Kind::kJa, {c, n}}});
     hyps.push_back({{Kind::kJa, {0, c}}, {Kind::kEn, {c, n}}});
-    // A long vowel at the end of a dictionary reading can be written with a
-    // hyphen: ri-domi-wo... -> README|wo... . Let both sides use the Japanese
-    // dictionary; the ordinary English/Japanese cuts cannot express this.
-    if (text[c - 1] == '-' && c < n && std::islower(static_cast<unsigned char>(text[c])))
-      hyps.push_back({{Kind::kJa, {0, c}}, {Kind::kJa, {c, n}}});
   }
   for (size_t i = 0; i < cuts.size() && hyps.size() < 60; ++i) {
     for (size_t j = i + 1; j < cuts.size() && hyps.size() < 60; ++j) {

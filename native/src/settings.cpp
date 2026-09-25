@@ -8,6 +8,7 @@
 #include <thread>
 #include <dwmapi.h>
 #include "dictionary_editor.h"
+#include "user_dictionary.h"
 
 namespace {
 constexpr int kOpen = 101, kImport = 102, kUpdate = 103, kAbout = 104;
@@ -50,9 +51,10 @@ void RepaintStatus() {
 }
 void RefreshStatus() {
   std::error_code ec;
-  auto public_file = user_dir / L"public_dictionary.tsv";
+  auto cached_public_file = user_dir / L"public_dictionary.tsv";
+  auto public_file = ime::PublicDictionaryPath(base / L"engine" / L"public_dictionary.tsv", cached_public_file);
   auto user_file = user_dir / L"user_dictionary.tsv";
-  public_status = std::filesystem::exists(public_file, ec) ? L"更新済み・利用可能" : L"同梱版を使用中";
+  public_status = public_file == cached_public_file ? L"更新済み・利用可能" : L"同梱版を使用中";
   user_status = std::filesystem::exists(user_file, ec) ? L"登録済み" : L"未作成";
   status_note = L"入力文とユーザー辞書は外部に送信しません";
   RepaintStatus();
@@ -117,7 +119,7 @@ void UpdateDictionary() {
 }
 void About() {
   MessageBoxW(window,
-    L"Yomitsugu 0.2.7-preview\r\nローマ字を続けて打ち、入力中に日本語の変換候補を提示するIMEです。\r\n\r\n公開辞書は、更新ボタンを押したときだけ Mozc と EDRDG の固定URLから取得します。入力した文字とユーザー辞書は送信しません。\r\n\r\nユーザー辞書は画面から登録・編集できます。TSVの取り込みにも対応します。詳細とライセンスはインストール先の README.md を参照してください。",
+    L"Yomitsugu 0.2.8-preview\r\nローマ字を続けて打ち、入力中に日本語の変換候補を提示するIMEです。\r\n\r\n公開辞書は、更新ボタンを押したときだけ Mozc と EDRDG の固定URLから取得します。入力した文字とユーザー辞書は送信しません。\r\n\r\nユーザー辞書は画面から登録・編集できます。TSVの取り込みにも対応します。詳細とライセンスはインストール先の README.md を参照してください。",
     L"Yomitsugu", MB_OK);
 }
 void DrawAction(const DRAWITEMSTRUCT* item) {
@@ -136,7 +138,7 @@ void DrawAction(const DRAWITEMSTRUCT* item) {
   switch (item->CtlID) {
     case kOpen: heading=L"ユーザー辞書を編集"; description=L"登録した単語を確認・修正"; mark=L"✎"; break;
     case kImport: heading=L"TSV辞書を取り込む"; description=L"既存辞書を検証して置換"; mark=L"＋"; break;
-    case kUpdate: heading=L"公開辞書を更新"; description=L"最新の記号・用語を取得"; mark=L"↻"; break;
+    case kUpdate: heading=L"公開辞書を更新"; description=L"一般語・外来語・記号を取得"; mark=L"↻"; break;
     case kAbout: heading=L"使い方とバージョン"; description=L"形式・出典・ライセンス"; mark=L"ⓘ"; break;
   }
   RECT icon_area{area.left+17, area.top+19, area.left+62, area.top+64};
@@ -172,7 +174,7 @@ void DrawDashboard(HWND hwnd, HDC target) {
   RECT subtitle{108,78,610,110};
   Text(dc,body_font,RGB(201,220,238),L"ローマ字を続けて、日本語へ",subtitle,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   RECT version{594,35,690,66};
-  Text(dc,small_font,RGB(178,206,235),L"PREVIEW 0.2.7",version,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,small_font,RGB(178,206,235),L"PREVIEW 0.2.8",version,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
   RECT status_card{34,169,690,288};
   Panel(dc,status_card,RGB(255,255,255),RGB(222,230,240),18);
   RECT public_label{54,185,326,207}, public_value{54,210,330,243};

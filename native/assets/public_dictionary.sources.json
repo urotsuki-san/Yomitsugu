@@ -1,15 +1,17 @@
 {
+  "format_version": 2,
   "source_urls": {
     "mozc_symbols": "https://raw.githubusercontent.com/google/mozc/master/src/data/symbol/symbol.tsv",
-    "edrdg_edict2": "https://www.edrdg.org/pub/Nihongo/edict2.gz"
+    "edrdg_edict2": "https://www.edrdg.org/pub/Nihongo/edict2u.gz"
   },
   "source_sha256": {
     "mozc_symbols": "bc68b032a195f203dccba6f95667424199ba9b185fee2be64eeaa959253c097a",
-    "edrdg_edict2": "d86d7b5889266411b4e3a7edc8f72b6193e5a8639c73fc91c5056edf84216344"
+    "edrdg_edict2": "12d9d2844127f77125379d9cbda6cba3dacb92498e08dc057ee3cf466a7a0b17"
   },
-  "output_sha256": "7e585a59070438a9820a67d9be6a4cf39641042bcd552bb7334f4016795afaa2",
-  "readings": 2062,
-  "symbols": 3161,
+  "output_sha256": "7876e09da1eae758ff7f2f04bfe49f3a470f56a1ba28fe2e0937253f1d43d569",
+  "readings": 176481,
+  "symbols": 3115,
   "computing_terms": 750,
-  "entries": 3911
+  "lexical_entries": 274024,
+  "entries": 277889
 }

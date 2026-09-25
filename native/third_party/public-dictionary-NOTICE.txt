@@ -1,18 +1,24 @@
 Public dictionary sources bundled with IME Mixed Preview
 
-1. Mozc symbol.tsv
+1. Mozc symbol.tsv and romanji-hiragana.tsv
    Copyright 2010-2026 Google LLC and contributors.
    Source: https://github.com/google/mozc/blob/master/src/data/symbol/symbol.tsv
+   Romaji table: https://github.com/google/mozc/blob/b9c3fcbd6d76b19649ef572324fa9da2559bc18e/src/data/preedit/romanji-hiragana.tsv
+   The romanization table is generated into native/src/romaji_table.inc.
+   Yomitsugu retains its own digit/punctuation behavior and n disambiguation.
    License: BSD 3-Clause License, https://github.com/google/mozc/blob/master/LICENSE
 
-2. EDRDG EDICT2 computing terms
+2. EDRDG EDICT2 headwords and computing terms
    Copyright The Electronic Dictionary Research and Development Group.
-   Source: https://www.edrdg.org/pub/Nihongo/edict2.gz
+   Source: https://www.edrdg.org/pub/Nihongo/edict2u.gz (UTF-8 edition)
    License: Creative Commons Attribution-ShareAlike 4.0 International.
    https://www.edrdg.org/edrdg/licence.html
    https://creativecommons.org/licenses/by-sa/4.0/legalcode
    The generated public_dictionary.tsv is derived from these dictionary files.
    Its EDRDG-derived entries are offered under CC BY-SA 4.0.
+   Modifications: hiragana reading normalization, noun/common-word/loanword
+   selection, exclusion of obsolete/irregular forms, reading restriction checks,
+   acronym extraction, deduplication and a maximum of 32 surfaces per reading.
 
 Only dictionary files are downloaded. IME Mixed does not send typed words,
 sentences, or user_dictionary.tsv to these sources.
@@ -563,5 +569,4 @@ the avoidance of doubt, this paragraph does not form part of the
 public licenses.
 
 Creative Commons may be contacted at creativecommons.org.
-
 

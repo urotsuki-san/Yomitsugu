@@ -21,7 +21,7 @@ int wmain(int argc, wchar_t** argv) {
   auto public_host = std::filesystem::path(own_module).parent_path()/L"ime_engine_host.exe";
   if (argc == 2) public_host = argv[1];
   UserDictionary public_dictionary; std::string public_error;
-  Check(public_dictionary.Load(public_host.parent_path()/L"public_dictionary.tsv", &public_error) && public_dictionary.size() >= 3000,
+  Check(public_dictionary.Load(public_host.parent_path()/L"public_dictionary.tsv", &public_error, true) && public_dictionary.size() >= 3000,
         "public dictionary loaded from engine directory");
   auto DecodeWithPublic = [&](DecodeInput input) {
     auto list = Decode(input); public_dictionary.Apply(input, &list, true); return list;
@@ -85,6 +85,58 @@ int wmain(int argc, wchar_t** argv) {
     Check(!dict.Load(path,&error)&&dict.size()==1,"invalid import preserves previous dictionary");
     std::filesystem::remove(path); }
   Check(AzookeyEnsureReady(),"real dictionary required (no soft skip)");
+  { const std::pair<const char*,const char*> rules[] = {
+      {"we",u8"うぇ"},{"wi",u8"うぃ"},{"whe",u8"うぇ"},{"twu",u8"とぅ"},
+      {"dwu",u8"どぅ"},{"she",u8"しぇ"},{"che",u8"ちぇ"},{"vya",u8"ゔゃ"},
+      {"matcha",u8"まっちゃ"},{"n'i",u8"んい"},{"nni",u8"んに"},{"xn",u8"ん"}};
+    bool all=true;
+    for (auto [raw,expected]:rules) { bool ok=false; if(ConvertRomaji(raw,&ok)!=expected || !ok) all=false; }
+    Check(all,"standard romaji rules including pending consonants and explicit n boundary"); }
+  { const std::pair<const char*,const char*> corrections[] = {
+      {"aninsuto-ru",u8"アンインストール"},{"anninsuto-ru",u8"アンインストール"},
+      {"insutro-ru",u8"インストール"},{"puroguramnigu",u8"プログラミング"},
+      {"pasuaw-do",u8"パスワード"},{"bakkauppu",u8"バックアップ"},
+      {"deta-be-su",u8"データベース"},{"ki--bo-do",u8"キーボード"}};
+    for(auto [raw,expected]:corrections) {
+      DecodeInput in;in.raw_text=raw;in.candidate_limit=6;
+      auto list=DecodeWithPublic(in);
+      Check(Contains(list,expected)&&Contains(list,raw),raw);
+    }
+    for(const auto* field:{"code","identifier","password"}) {
+      DecodeInput in;in.raw_text="aninsuto-ru";in.field=field;
+      auto list=DecodeWithPublic(in);
+      Check(!list.empty()&&list.front().output_text==in.raw_text,"literal field never typo-corrected");
+    }
+  }
+  { const std::pair<const char*,const char*> sequences[] = {
+      {"insuto-rusitekudasai",u8"インストールしてください"},
+      {"konpyu-ta-wotukaimasu",u8"コンピューターを使います"},
+      {"aninsuto-rusitekudasai",u8"アンインストールしてください"},
+      {"sofutowea",u8"ソフトウェア"},
+      {"READMEwokousinnsitekudasaiGithubde",u8"READMEを更新してくださいGithubで"}};
+    for(auto [raw,expected]:sequences) {
+      auto s=Preview();std::string prefix;bool intact=true;
+      for(char ch:std::string(raw)) {
+        prefix+=ch;s.Type(std::string(1,ch));auto request=s.decode_input();
+        auto list=DecodeWithPublic(request);s.ApplyCandidates(request,list);
+        intact=intact && s.raw_text()==prefix;
+      }
+      Check(intact&&s.visible_text()==expected,"continuous input preserves all keystrokes and converts final text");
+      s.Backspace();
+      Check(s.raw_text()==prefix.substr(0,prefix.size()-1),"correction remains editable through original keystrokes");
+    }
+  }
+  { auto dir=std::filesystem::temp_directory_path()/(L"ime_public_cache_"+std::to_wstring(GetCurrentProcessId()));
+    std::filesystem::create_directories(dir);
+    auto bundled=dir/L"bundled.tsv",cached=dir/L"public_dictionary.tsv",metadata=dir/L"public_dictionary.sources.json";
+    {std::ofstream out(cached);out<<"# old cache\n";}
+    Check(PublicDictionaryPath(bundled,cached)==bundled,"legacy public cache cannot mask expanded bundle");
+    {std::ofstream out(metadata);out<<"{\"format_version\":2}";}
+    Check(PublicDictionaryPath(bundled,cached)==cached,"versioned public update is selected");
+    {std::ofstream out(metadata);out<<"invalid json";}
+    Check(PublicDictionaryPath(bundled,cached)==bundled,"invalid update metadata falls back to bundled data");
+    std::filesystem::remove(metadata);std::filesystem::remove(cached);std::filesystem::remove(dir);
+  }
   auto one=AzookeyConvert(u8"はし",1); auto many=AzookeyConvert(u8"はし",8);
   Check(one.size()==1&&many.size()>1,"cache independent of requested limit");
   const std::pair<const char*,const char*> words[]{
