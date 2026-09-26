@@ -1625,8 +1625,11 @@ bool Session::SelectCandidate(int index) {
 void Session::ReplaceVisible(const std::string& text) {
   if (text.empty()) return;
   BumpInteraction();
+  candidates_.erase(std::remove_if(candidates_.begin(), candidates_.end(),
+      [&](const Candidate& candidate) { return candidate.output_text == text; }), candidates_.end());
   Candidate c; c.output_text = text; c.reading_text = raw_text_;
   candidates_.insert(candidates_.begin(), c); selected_index_ = 0; manual_lock_ = true;
+  if (candidates_.size() > 32) candidates_.resize(32);
 }
 
 void Session::PressCharacterClass(int vk) {

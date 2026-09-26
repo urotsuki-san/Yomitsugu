@@ -4,6 +4,12 @@
 #include <fstream>
 
 int main() {
+  {
+    ime::Session session; session.set_deferred_decoding(true); session.Type("nihongo");
+    for(int i=0;i<5000;++i) session.PressCharacterClass(VK_F6+i%5);
+    if(session.candidates().size()>7 || session.visible_text()!="nihongo") return 1;
+    std::cout<<"PASS 5000 character-class changes keep candidate storage bounded\n";
+  }
   const auto folder=std::filesystem::temp_directory_path()/(L"yomitsugu_learning_cache_"+std::to_wstring(GetCurrentProcessId())+L"_"+std::to_wstring(GetTickCount64()));
   ime::LearningStore writer(folder),reader(folder);
   ime::DecodeInput input; input.raw_text="hashi";
