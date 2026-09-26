@@ -116,6 +116,7 @@ bool UserDictionary::ApplyEnglish(const DecodeInput& input, std::vector<Candidat
       bool suffix_ok=false;ConvertRomaji(suffix,&suffix_ok);
       if(!particle || !suffix_ok) continue;
       auto request=input;request.raw_text=suffix;
+      request.left_context+=raw.substr(0,end);
       auto converted=Decode(request);
       if(converted.empty() || converted.front().output_text==suffix) continue;
       output=raw.substr(0,end)+converted.front().output_text;
@@ -160,6 +161,7 @@ void UserDictionary::ApplyExact(const DecodeInput& input, std::vector<Candidate>
       if (!raw_end || raw_end >= input.raw_text.size()) continue;
       DecodeInput suffix_input = input;
       suffix_input.raw_text = input.raw_text.substr(raw_end);
+      suffix_input.left_context += found->second.front();
       auto suffix_candidates = Decode(suffix_input);
       if (suffix_candidates.empty() || suffix_candidates.front().is_raw) continue;
       std::vector<Candidate> combined;
@@ -196,17 +198,21 @@ void UserDictionary::ApplyExact(const DecodeInput& input, std::vector<Candidate>
       for (size_t end=reading.size(); end>start; --end) {
         if (end<reading.size() && (static_cast<unsigned char>(reading[end]) & 0xC0) == 0x80) continue;
         // 1文字の読みは単語の途中に適用しない。
-        if (end-start<6) continue;
-        auto found=entries_.find(reading.substr(start,end-start));
-        if (found != entries_.end()) { it=found; prefix=reading.substr(0,start); suffix=reading.substr(end); break; }
+          if (end-start<6) continue;
+          auto found=entries_.find(reading.substr(start,end-start));
+          // 短い一般語を文中へ機械的に差し込むと、全文候補が同音の断片で埋まる。
+          if (public_dictionary && found!=entries_.end() && end-start<12 &&
+              supplemental_readings_.count(found->first) && !priority_readings_.count(found->first)) continue;
+          if (found != entries_.end()) { it=found; prefix=reading.substr(0,start); suffix=reading.substr(end); break; }
       }
     }
     if (it==entries_.end()) return;
-    auto surface=[](const std::string& kana) {
-      if(kana.empty())return kana;
-      auto list=AzookeyConvert(kana,1); return list.empty()?kana:list.front();
-    };
-    prefix=surface(prefix); suffix=surface(suffix);
+      auto surface=[&input](const std::string& kana, const std::string& left, const std::string& right) {
+        if(kana.empty())return kana;
+        auto list=AzookeyConvert(kana,1,left,right,input.phase!="typing"); return list.empty()?kana:list.front();
+      };
+      prefix=surface(prefix,input.left_context,{});
+      suffix=surface(suffix,input.left_context+prefix+it->second.front(),input.right_context);
   }
   std::vector<Candidate> combined; std::set<std::string> seen;
   bool first_is_arrow = false;
@@ -330,18 +336,20 @@ void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Cand
     }
   }
   if (!candidates->empty() && candidates->front().output_text==input.raw_text) promote=false;
+  // エンジンが既に辞書にある仮名語へ補正した場合、別の機械的な補正で上書きしない。
+  if (!candidates->empty() && entries_.count(candidates->front().output_text)) promote=false;
   std::vector<Candidate> combined;
   std::set<std::string> seen;
   auto append=[&](const Candidate& c) { if(seen.insert(c.output_text).second) combined.push_back(c); };
   if (!promote && !candidates->empty()) append(candidates->front());
   for (size_t i=0; i<matches.size() && i<3; ++i) {
     const auto& match=matches[i];
+    const auto& words=supplemental_words_.at(match.reading);
     auto suffix=match.suffix;
     if (!suffix.empty()) {
-      auto converted=AzookeyConvert(suffix,1);
+      auto converted=AzookeyConvert(suffix,1,input.left_context+words.front(),input.right_context,input.phase!="typing");
       if (!converted.empty()) suffix=converted.front();
     }
-    const auto& words=supplemental_words_.at(match.reading);
     for(size_t j=0;j<words.size() && j<2;++j) {
       Candidate c; c.output_text=words[j]+suffix+punctuation;
       c.reading_text=match.reading+match.suffix; c.edit_cost=match.repair.cost/10.0;

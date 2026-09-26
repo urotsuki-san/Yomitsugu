@@ -9,6 +9,22 @@ namespace ime {
 namespace {
 using nlohmann::json;
 constexpr size_t kMaximumEntries = 2048;
+std::string ContextKey(const DecodeInput& input) {
+  if (input.left_context.empty() && input.right_context.empty()) return {};
+  auto nearby=[](const std::string& text, bool tail) {
+    std::vector<size_t> offsets;
+    for(size_t i=0;i<text.size();++i) if((static_cast<unsigned char>(text[i])&0xc0)!=0x80) offsets.push_back(i);
+    if(offsets.size()<=8) return text;
+    return tail ? text.substr(offsets[offsets.size()-8]) : text.substr(0,offsets[8]);
+  };
+  // 周囲の文章は保存せず、直前・直後8文字から照合用の値を作る。
+  const auto context=nearby(input.left_context,true)+std::string(1,'\0')+nearby(input.right_context,false);
+  std::uint64_t hash=14695981039346656037ull;
+  for(unsigned char ch:context) { hash^=ch; hash*=1099511628211ull; }
+  std::string result(16,'0');
+  for(int i=15;i>=0;--i) { result[i]="0123456789abcdef"[hash&15];hash>>=4; }
+  return result;
+}
 bool ValidText(const std::string& text, size_t maximum) {
   return !text.empty() && text.size() <= maximum && text.find('\0') == std::string::npos &&
       text.find_first_of("\r\n\t") == std::string::npos &&
@@ -101,6 +117,16 @@ void LearningStore::Load(bool force) {
           value["count"].get<std::uint64_t>() > 100001) continue;
       Entry entry{value.at("key").get<std::string>(), value.at("text").get<std::string>(),
                   value.at("count").get<unsigned>(), value.at("used").get<std::uint64_t>()};
+      if (value.contains("selected")) {
+        if (!value["selected"].is_number_unsigned()) continue;
+        entry.selected = value["selected"].get<std::uint64_t>();
+        if (entry.selected > entry.used) continue;
+      }
+      if (value.contains("context")) {
+        if (!value["context"].is_string()) continue;
+        entry.context=value["context"].get<std::string>();
+        if (!entry.context.empty() && (entry.context.size()!=16 || entry.context.find_first_not_of("0123456789abcdef")!=std::string::npos)) continue;
+      }
       if (ValidText(entry.key, 96) && ValidText(entry.text, 256) && entry.count && entry.used < 0x7fffffffffffffffull)
         entries_.push_back(std::move(entry));
       if (entries_.size() == kMaximumEntries) break;
@@ -109,7 +135,7 @@ void LearningStore::Load(bool force) {
 }
 bool LearningStore::Save() {
   auto entries = json::array();
-  for (const auto& entry : entries_) entries.push_back({{"key", entry.key}, {"text", entry.text}, {"count", entry.count}, {"used", entry.used}});
+  for (const auto& entry : entries_) entries.push_back({{"key", entry.key}, {"text", entry.text}, {"count", entry.count}, {"used", entry.used}, {"selected", entry.selected}, {"context", entry.context}});
   return WriteJson(history_, {{"version", 1}, {"entries", entries}});
 }
 bool LearningStore::Clear() {
@@ -119,20 +145,22 @@ bool LearningStore::Clear() {
   Load(true); return false;
 }
 size_t LearningStore::size() { Load(); return entries_.size(); }
-bool LearningStore::Record(const DecodeInput& input, const std::string& chosen) {
+bool LearningStore::Record(const DecodeInput& input, const std::string& chosen, bool explicit_selection) {
   const auto key = Key(input);
   if (key.empty() || !ValidText(chosen, 256) || chosen == input.raw_text ||
       std::none_of(chosen.begin(), chosen.end(), [](unsigned char ch) { return ch >= 128; })) return false;
   HistoryLock lock; if (!lock || !enabled()) return false;
   Load(true);
-  auto found = std::find_if(entries_.begin(), entries_.end(), [&](const Entry& entry) { return entry.key == key && entry.text == chosen; });
-  if (found == entries_.end()) { entries_.push_back({key, chosen, 0, 0}); found = entries_.end() - 1; }
+  const auto context=ContextKey(input);
+  auto found = std::find_if(entries_.begin(), entries_.end(), [&](const Entry& entry) { return entry.key == key && entry.text == chosen && entry.context == context; });
+  if (found == entries_.end()) { entries_.push_back({key, chosen, 0, 0, 0, context}); found = entries_.end() - 1; }
   found->count = (std::min)(found->count, 100000u) + 1;
   FILETIME time{}; GetSystemTimeAsFileTime(&time);
   auto next_used = (static_cast<std::uint64_t>(time.dwHighDateTime) << 32) | time.dwLowDateTime;
   // 同じ時計刻み内の選択や時計の巻き戻しでも、後の選択を優先する。
   for (const auto& entry : entries_) next_used = (std::max)(next_used, entry.used + 1);
   found->used = next_used;
+  if (explicit_selection) found->selected = next_used;
   std::stable_sort(entries_.begin(), entries_.end(), [](const Entry& a, const Entry& b) { return a.used > b.used; });
   if (entries_.size() > kMaximumEntries) entries_.resize(kMaximumEntries);
   if (Save()) return true;
@@ -142,10 +170,14 @@ void LearningStore::Apply(const DecodeInput& input, std::vector<Candidate>* cand
   const auto key = Key(input);
   if (!candidates || key.empty() || input.candidate_limit <= 0 || !enabled()) return;
   Load();
+  const auto context=ContextKey(input);
   const Entry* selected = nullptr;
   for (const auto& entry : entries_) {
-    if (entry.key != key) continue;
-    if (!selected || entry.count > selected->count || (entry.count == selected->count && entry.used > selected->used)) selected = &entry;
+    if (entry.key != key || entry.context != context) continue;
+    // 手で選び直した候補を、過去の自動確定回数で押し下げない。
+    if (!selected || entry.selected > selected->selected ||
+        (entry.selected == selected->selected &&
+         (entry.count > selected->count || (entry.count == selected->count && entry.used > selected->used)))) selected = &entry;
   }
   if (!selected) return;
   Candidate learned; learned.output_text = selected->text; learned.reading_text = key;

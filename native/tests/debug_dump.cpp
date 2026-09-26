@@ -62,10 +62,12 @@ static bool ReadmeDemo() {
 }
 
 int main(int argc, char** argv) {
-  if (argc == 2 && std::strcmp(argv[1], "--runtime-json") == 0) {
+  if (argc >= 2 && std::strcmp(argv[1], "--runtime-json") == 0) {
     if (!AzookeyEnsureReady()) return 2;
+    if (argc == 3) AzookeySetZenzai(true, "", std::stoi(argv[2]));
     auto module = GetModuleHandleW(L"azookey-engine.dll");
     auto convert = reinterpret_cast<const char* (*)(const char*, int)>(GetProcAddress(module, "ConvertText"));
+    auto context_convert = reinterpret_cast<const char* (*)(const char*, const char*, const char*, int, int)>(GetProcAddress(module, "ConvertTextWithContext"));
     auto freeString = reinterpret_cast<void (*)(const char*)>(GetProcAddress(module, "FreeString"));
     if (!convert || !freeString) return 3;
     std::string raw;
@@ -73,7 +75,7 @@ int main(int argc, char** argv) {
       if (!raw.empty() && raw.back() == '\r') raw.pop_back();
       bool ok = false;
       const auto reading = ConvertRomaji(raw, &ok);
-      const char* json = convert(reading.c_str(), 0);
+      const char* json = argc == 4 && context_convert ? context_convert(reading.c_str(), argv[3], "", 0, 1) : convert(reading.c_str(), 0);
       std::printf("RUNTIME\t%s\t%s\n", raw.c_str(), json ? json : "null");
       if (json) freeString(json);
     }
@@ -81,8 +83,9 @@ int main(int argc, char** argv) {
   }
   if (argc == 2 && std::strcmp(argv[1], "--readme-demo") == 0)
     return ReadmeDemo() ? 0 : 1;
-  if (argc == 2 && std::strcmp(argv[1], "--probe") == 0) {
+  if (argc >= 2 && std::strcmp(argv[1], "--probe") == 0) {
     if (!AzookeyEnsureReady()) return 2;
+    if (argc == 3) AzookeySetZenzai(true, "", std::stoi(argv[2]));
     wchar_t path[32768]{};
     GetModuleFileNameW(nullptr, path, 32768);
     UserDictionary dictionary;

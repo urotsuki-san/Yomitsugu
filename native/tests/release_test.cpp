@@ -153,9 +153,23 @@ int wmain(int argc, wchar_t** argv) {
     Check(!session.candidates_ready(),"typing distinguishes provisional display from conversion results");
     Candidate candidate;candidate.output_text=u8"インストール";
     Check(session.ApplyCandidates(session.decode_input(),{candidate})&&session.candidates_ready(),"matching engine result marks candidates ready");
+    const auto previewRequest=session.decode_input();
+    Check(previewRequest.phase=="typing","live typing requests the fast conversion path");
+    session.RefineCandidates();
+    Check(!session.candidates_ready() && session.decode_input().phase=="end_of_phrase","commit refinement waits for its own result");
+    Check(!session.ApplyCandidates(previewRequest,{candidate}),"late preview cannot replace a refinement result");
+    Check(session.ApplyCandidates(session.decode_input(),{candidate}),"refinement result resolves the pending commit");
     session.PressEnter();
     Check(session.last_commit_learnable(),"resolved conversion can be learned after commit");
+    Check(!session.last_commit_explicit(),"automatic commit does not claim a manual choice");
     session.Type("ha");Check(!session.candidates_ready(),"next input cannot reuse previous readiness");
+    session.Reset();session.Type("hashi");
+    Candidate bridge;bridge.output_text=u8"橋";
+    Candidate chopsticks;chopsticks.output_text=u8"箸";
+    session.ApplyCandidates(session.decode_input(),{bridge,chopsticks});
+    session.SelectCandidate(1);session.PressEnter();
+    Check(session.last_commit_explicit(),"clicked candidate retains manual choice after commit");
+    session.Reset();Check(!session.last_commit_explicit(),"reset clears manual commit state");
   }
   { const char* words[]={"software","hardware","online","version","computer","folder","password","server","database"};
     for(auto raw:words) { DecodeInput in;in.raw_text=raw;auto list=DecodeWithPublic(in);
@@ -292,6 +306,13 @@ int wmain(int argc, wchar_t** argv) {
     while(GetTickCount64()<until&&channel.running()) { if(channel.Poll(&reply,&list)){done=true;break;} Sleep(5); }
     Check(done && reply.raw_text==request.raw_text && !list.empty() && list.front().output_text=="README",
           "public dictionary round trip through worker");
+    request.raw_text="kiru";
+    for(int i=0;i<180;++i) { request.left_context+=u8"あ";request.right_context+=u8"い"; }
+    request.left_context+=u8"この紙を";
+    channel.Submit(request);done=false;list.clear();until=GetTickCount64()+30000;
+    while(GetTickCount64()<until&&channel.running()){if(channel.Poll(&reply,&list)){done=true;break;}Sleep(5);}
+    Check(done&&!list.empty(),"multibyte context crossing 512 bytes remains valid over IPC");
+    request.left_context.clear();request.right_context.clear();
     request.raw_text="sannkai"; channel.Learn(request,u8"散会"); channel.FinishLearning(5000);
     channel.Stop();
     Check(channel.Start(host.wstring(),profile.wstring()),"worker restarts with saved learning");

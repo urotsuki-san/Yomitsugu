@@ -48,9 +48,10 @@ int wmain(int argc, wchar_t** argv) {
       ime::DecodeInput request;
       request.raw_text = j.at("raw").get<std::string>(); request.left_context = j.value("left", "");
       request.right_context = j.value("right", ""); request.field = j.value("field", "prose");
+      request.phase = j.value("phase", "end_of_phrase");
       request.candidate_limit = (std::clamp)(j.value("limit", 8), 1, 16);
       if (j.value("operation", "decode") == "learn") {
-        const bool saved = learning.Record(request, j.at("chosen").get<std::string>());
+        const bool saved = learning.Record(request, j.at("chosen").get<std::string>(), j.value("explicit", true));
         data = json({{"learned", saved}}).dump(); size = static_cast<uint32_t>(data.size());
         if (!Transfer(output, &size, sizeof(size), true) || !Transfer(output, data.data(), size, true)) return 0;
         continue;

@@ -49,7 +49,7 @@ jobs:
       - uses: actions/cache/restore@v4
         id: runtime-cache
         with:
-          key: windows-2022-runtime-v1-${{ hashFiles('scripts/ci/prepare_runtime.ps1') }}
+          key: windows-2022-runtime-v1-${{ hashFiles('scripts/ci/prepare_runtime.ps1', 'patches/*.patch') }}
           path: |
             upstream/myime/build/x64/release
             upstream/myime/LICENSE
@@ -69,7 +69,7 @@ jobs:
       - uses: actions/cache/save@v4
         if: steps.runtime-cache.outputs.cache-hit != 'true'
         with:
-          key: windows-2022-runtime-v1-${{ hashFiles('scripts/ci/prepare_runtime.ps1') }}
+          key: windows-2022-runtime-v1-${{ hashFiles('scripts/ci/prepare_runtime.ps1', 'patches/*.patch') }}
           path: |
             upstream/myime/build/x64/release
             upstream/myime/LICENSE
@@ -97,8 +97,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'release_test failed' }
           python scripts/ci/engine_stability.py native/build/Release/ime_engine_host.exe
           if ($LASTEXITCODE -ne 0) { throw 'Engine stability failed' }
-          python scripts/evaluate_conversion.py --output audit/conversion-quality.json --check
+          python scripts/evaluate_conversion.py --output audit/conversion-quality.json --check --baseline native/tests/conversion_baseline.json
           if ($LASTEXITCODE -ne 0) { throw 'conversion quality regression' }
+          python scripts/ci/context_quality.py native/build/Release/ime_engine_host.exe tests/context_conversion.json audit/context-quality.json --check
+          if ($LASTEXITCODE -ne 0) { throw 'context conversion regression' }
+          python scripts/ci/typing_latency.py native/build/Release/ime_engine_host.exe audit/typing-latency.json
+          if ($LASTEXITCODE -ne 0) { throw 'typing phase regression' }
           & scripts/capture_engine_demo.ps1
           & native/build/e2e_out_v14/tip_com_smoke.exe
           if ($LASTEXITCODE -ne 0) { throw 'TIP COM smoke failed' }
@@ -128,5 +132,7 @@ jobs:
             dist/installer/Yomitsugu-0.2.10-preview-x64-setup.exe
             dist/yomitsugu-0.2.10-preview.zip.sha256
             audit/conversion-quality.json
+            audit/context-quality.json
+            audit/typing-latency.json
           retention-days: 7
           if-no-files-found: error

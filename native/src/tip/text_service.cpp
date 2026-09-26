@@ -229,7 +229,7 @@ HRESULT TextService::ApplyState(TfEditCookie ec, ITfContext* pic, const ime::Dec
       session_.selected_index() < static_cast<int>(session_.candidates().size()) && !session_.candidates()[session_.selected_index()].is_raw;
   if (finish && !cancel && session_.composing() && (next.last_commit_learnable() || selected_conversion)) {
     auto learned = now; learned.field = field;
-    engine_channel_.Learn(learned, text);
+    engine_channel_.Learn(learned, text, next.last_commit_explicit());
   }
   session_ = next;
   if (finish || cancel) pending_commit_ = false;
@@ -303,7 +303,9 @@ bool TextService::StartEngine() {
   return engine_channel_.running();
 }
 bool TextService::BeginPendingCommit() {
-  if (session_.candidates_ready() || !session_.composing() || !StartEngine()) return false;
+  if (!session_.composing() || !StartEngine()) return false;
+  session_.RefineCandidates();
+  if (session_.candidates_ready()) return false;
   pending_commit_ = true; commit_deadline_ = GetTickCount64() + 3000;
   engine_channel_.Submit(session_.decode_input());
   return true;

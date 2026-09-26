@@ -3,3 +3,4 @@ native/assets/public_dictionary.tsv text eol=lf
 native/assets/public_dictionary.sources.json text eol=lf
 native/src/romaji_table.inc text eol=lf
 scripts/update_public_dictionary.ps1 text eol=lf
+patches/*.patch text eol=lf whitespace=-blank-at-eol

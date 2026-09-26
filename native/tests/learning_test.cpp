@@ -28,6 +28,34 @@ int main() {
     ++passed;
   }
   if(!writer.Clear() || reader.size()!=0) return 1;
+  for (int i=0;i<20;++i) if(!writer.Record(input,u8"橋",false)) return 1;
+  if(!writer.Record(input,u8"箸",true)) return 1;
+  for (int i=0;i<20;++i) if(!writer.Record(input,u8"橋",false)) return 1;
+  {
+    std::vector<ime::Candidate> list;
+    reader.Apply(input,&list);
+    if(list.empty() || list.front().output_text!=u8"箸") return 1;
+    if(!writer.Record(input,u8"端",true)) return 1;
+    reader.Apply(input,&list);
+    if(list.empty() || list.front().output_text!=u8"端") return 1;
+    std::cout<<"PASS explicit correction overrides frequent automatic commits and can be changed again\n";
+  }
+  if(!writer.Clear()) return 1;
+  {
+    ime::DecodeInput request;request.raw_text="kiru";request.left_context=u8"この紙を";
+    if(!writer.Record(request,u8"切る",true)) return 1;
+    request.left_context=u8"新しい服を";
+    if(!writer.Record(request,u8"着る",true)) return 1;
+    std::vector<ime::Candidate> list;
+    reader.Apply(request,&list);
+    if(list.empty() || list.front().output_text!=u8"着る") return 1;
+    request.left_context=u8"この紙を";list.clear();reader.Apply(request,&list);
+    if(list.empty() || list.front().output_text!=u8"切る") return 1;
+    request.left_context.clear();list.clear();reader.Apply(request,&list);
+    if(!list.empty()) return 1;
+    std::cout<<"PASS choices in different contexts do not override each other\n";
+  }
+  if(!writer.Clear()) return 1;
   if(!writer.Record(input,u8"橋")) return 1;
   HANDLE locked=CreateFileW((folder/L"learning.json").c_str(),GENERIC_READ,FILE_SHARE_READ,nullptr,OPEN_EXISTING,0,nullptr);
   if(locked==INVALID_HANDLE_VALUE) return 1;

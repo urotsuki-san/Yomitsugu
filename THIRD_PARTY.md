@@ -20,3 +20,7 @@ Yomitsuguの独自コードは[MIT](LICENSE)です。辞書・モデル・同梱
 公開辞書 `native/assets/public_dictionary.tsv` は複数の出典をまとめたデータです。EDRDG由来の部分にはCC BY-SA 4.0を適用します。コードのMITライセンスで辞書の条件を置き換えるものではありません。更新時には出典と取得ファイルのSHA-256を `.sources.json` に保存します。
 
 アーキテクチャ図に埋め込まれたJetBrains MonoはSIL Open Font License 1.1です。ライセンス本文は `docs/architecture/yomitsugu.html` に含まれています。
+
+変換処理の変更は [myimeへのパッチ](patches/myime-context-conversion.patch)に収録しています。前後文脈の受け渡し、候補の探索・順位付け、読みと送り仮名の照合が対象です。固定リビジョンへ適用してビルドし、myimeとAzooKeyのライセンス本文は配布物にも保持します。
+
+品質比較には [AJIMEE-Bench](https://github.com/azooKey/AJIMEE-Bench) を使っています。評価データはCC BY-SA 3.0、ツールのコードはCC0です。評価データはインストーラーや辞書には含めていません。

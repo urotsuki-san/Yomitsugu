@@ -57,6 +57,7 @@ class Session {
   void set_deferred_decoding(bool enabled) { deferred_decoding_ = enabled; }
   DecodeInput decode_input() const;
   bool ApplyCandidates(const DecodeInput& request, std::vector<Candidate> candidates);
+  void RefineCandidates();
   void CancelConversion();
   void Reset();
   void PressCharacterClass(int vk);
@@ -100,6 +101,7 @@ class Session {
         (resolved_revision_ == revision_ && resolved_context_ == context_generation_ && !awaiting_candidates_);
   }
   bool last_commit_learnable() const { return last_commit_learnable_; }
+  bool last_commit_explicit() const { return last_commit_explicit_; }
   const std::vector<std::string>& output_log() const { return output_log_; }
   const std::vector<std::string>& learning_log() const { return learning_log_; }
 
@@ -132,6 +134,7 @@ class Session {
   bool manual_lock_ = false;
   bool engine_alive_ = true;
   bool last_commit_learnable_ = false;
+  bool last_commit_explicit_ = false;
   int selected_index_ = 0;
   // 文節境界はraw_text_のUTF-8バイト位置。先頭は0、末尾は文字列長。
   std::vector<size_t> segment_bounds_;

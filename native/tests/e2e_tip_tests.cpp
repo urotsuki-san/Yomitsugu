@@ -323,6 +323,22 @@ static void ClearBetween() {
   ClearEdit();
 }
 
+static bool CandidateVisible() {
+  bool visible = false;
+  EnumThreadWindows(GetCurrentThreadId(), [](HWND hwnd, LPARAM value) -> BOOL {
+    wchar_t name[80]{}; GetClassNameW(hwnd, name, 80);
+    if (wcscmp(name, L"ImeMixedCandidateWindow") == 0 && IsWindowVisible(hwnd))
+      *reinterpret_cast<bool*>(value) = true;
+    return TRUE;
+  }, reinterpret_cast<LPARAM>(&visible));
+  return visible;
+}
+
+static void WaitForCommit(const wchar_t* expected = nullptr) {
+  const auto deadline = GetTickCount64() + 4000;
+  do { Pump(30); } while ((CandidateVisible() || (expected && GetEditText()!=expected)) && GetTickCount64() < deadline);
+}
+
 int main(int argc, char** argv) {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
 
@@ -421,15 +437,9 @@ int main(int argc, char** argv) {
       deadline = GetTickCount64() + 4000;
       while (GetTickCount64() < deadline && GetEditText() != L"散開") Pump(30);
       SendVk(VK_RETURN);
+      WaitForCommit();
       Expect(GetEditText() == L"散開", "S03 engine delivers candidates after owner destruction");
-      bool visible = false;
-      EnumThreadWindows(GetCurrentThreadId(), [](HWND hwnd, LPARAM value) -> BOOL {
-        wchar_t name[80]{}; GetClassNameW(hwnd, name, 80);
-        if (wcscmp(name, L"ImeMixedCandidateWindow") == 0 && IsWindowVisible(hwnd))
-          *reinterpret_cast<bool*>(value) = true;
-        return TRUE;
-      }, reinterpret_cast<LPARAM>(&visible));
-      Expect(!visible, "S04 committed composition leaves no candidate popup");
+      Expect(!CandidateVisible(), "S04 committed composition leaves no candidate popup");
     }
     PrintTipDiagnostics("stability_inputs");
     DestroyWindow(g_hMain); tsf_thread_mgr->Deactivate(); tsf_thread_mgr->Release(); CoUninitialize();
@@ -445,7 +455,11 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN); Pump(700);
     Expect(GetEditText()==selected,"L02 commit selected candidate");
     ClearBetween(); RunKeys("sannkai"); Pump(1500); SendVk(VK_RETURN);
-    Expect(GetEditText()==selected,"L03 learned choice leads the next conversion");
+    WaitForCommit();
+    const auto learned=GetEditText();
+    std::printf("LEARNING original=[%s] selected=[%s] next=[%s]\n",
+                Utf8(original.c_str()).c_str(), Utf8(selected.c_str()).c_str(), Utf8(learned.c_str()).c_str());
+    Expect(learned==selected,"L03 learned choice leads the next conversion");
     DestroyWindow(g_hMain);
     tsf_thread_mgr->Deactivate(); tsf_thread_mgr->Release(); CoUninitialize();
     std::printf("E2E done pass=%d fail=%d\n",g_pass,g_fail);
@@ -476,6 +490,14 @@ int main(int argc, char** argv) {
       std::printf("QUICK_ENTER %s => [%s]\n", item.first, Utf8(text.c_str()).c_str());
       Expect(text == item.second, "Enter immediately after typing");
     }
+    ClearBetween(); RunKeys("nakagakara"); SendVk(VK_RETURN); WaitForCommit(L"中が空");
+    Expect(GetEditText() == L"中が空", "R11 refine ambiguous adjective reading on Enter");
+    Expect(!CandidateVisible(), "R12 refined commit closes candidates");
+    ClearBetween(); RunKeys("karanoyouki"); Pump(1000); SendVk(VK_SPACE); Pump(1000);
+    for (int i=0; i<16 && GetEditText()!=L"空の容器"; ++i) { SendVk(VK_DOWN); Pump(50); }
+    Expect(GetEditText() == L"空の容器", "R13 empty container is selectable");
+    SendVk(VK_RETURN); WaitForCommit();
+    Expect(GetEditText() == L"空の容器" && !CandidateVisible(), "R14 selected container is committed");
     PrintTipDiagnostics("reported_inputs");
     DestroyWindow(g_hMain);
     tsf_thread_mgr->Deactivate(); tsf_thread_mgr->Release(); CoUninitialize();

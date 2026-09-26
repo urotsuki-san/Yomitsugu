@@ -18,6 +18,7 @@ def verify(host: Path) -> None:
         ("ri-domi-wokousinnsitekudasaiGithubde", "READMEを更新してくださいGithubで"),
         ("samukunaltutekimasitane", "寒くなってきましたね"),
         ("sannkai", "散開"), ("yajirushi", "→"), ("ltu", "っ"), ("a", "あ"),
+        ("nakagakara", "中が空"), ("konitiha", "こんにちは"),
     ]
     child_read, parent_write = os.pipe()
     parent_read, child_write = os.pipe()

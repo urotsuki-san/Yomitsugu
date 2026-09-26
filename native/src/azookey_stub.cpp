@@ -3,7 +3,7 @@
 namespace ime {
 bool AzookeyEnsureReady() { return false; }
 bool AzookeyAvailable() { return false; }
-std::vector<std::string> AzookeyConvert(const std::string&, int) { return {}; }
+std::vector<std::string> AzookeyConvert(const std::string&, int, const std::string&, const std::string&, bool) { return {}; }
 void AzookeySetZenzai(bool, const std::string&, int) {}
 std::string AzookeyZenzaiStatus() { return "{}"; }
 bool AzookeySetUserDictionary(const std::string&) { return false; }

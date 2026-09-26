@@ -9,11 +9,11 @@ class LearningStore {
   bool enabled() const;
   bool SetEnabled(bool enabled);
   bool Clear();
-  bool Record(const DecodeInput& input, const std::string& chosen);
+  bool Record(const DecodeInput& input, const std::string& chosen, bool explicit_selection = true);
   void Apply(const DecodeInput& input, std::vector<Candidate>* candidates);
   size_t size();
  private:
-  struct Entry { std::string key, text; unsigned count = 0; std::uint64_t used = 0; };
+  struct Entry { std::string key, text; unsigned count = 0; std::uint64_t used = 0, selected = 0; std::string context; };
   static std::string Key(const DecodeInput& input);
   void Load(bool force = false);
   bool Save();

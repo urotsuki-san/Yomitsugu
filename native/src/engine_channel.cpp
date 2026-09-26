@@ -4,7 +4,19 @@
 
 namespace ime {
 using nlohmann::json;
-namespace { void Close(HANDLE& h) { if (h && h != INVALID_HANDLE_VALUE) CloseHandle(h); h = nullptr; } }
+namespace {
+void Close(HANDLE& h) { if (h && h != INVALID_HANDLE_VALUE) CloseHandle(h); h = nullptr; }
+std::string NearbyContext(const std::string& text, bool tail) {
+  if (text.size() <= 512) return text;
+  size_t boundary = tail ? text.size()-512 : 512;
+  if (tail) {
+    while (boundary<text.size() && (static_cast<unsigned char>(text[boundary])&0xc0)==0x80) ++boundary;
+    return text.substr(boundary);
+  }
+  while (boundary>0 && (static_cast<unsigned char>(text[boundary])&0xc0)==0x80) --boundary;
+  return text.substr(0,boundary);
+}
+}
 EngineChannel::~EngineChannel() { Stop(); }
 void EngineChannel::Stop() {
   // Jobへ登録するのは、このクラスで起動した変換プロセスだけ。
@@ -65,10 +77,10 @@ void EngineChannel::Submit(const DecodeInput& request) {
   if (!process_ || request.raw_text.size() > 512 || request.raw_text.empty()) return;
   pending_ = request;  // At most one pending snapshot, the most recent input.
 }
-void EngineChannel::Learn(const DecodeInput& request, const std::string& chosen) {
+void EngineChannel::Learn(const DecodeInput& request, const std::string& chosen, bool explicit_selection) {
   if (!process_ || request.field != "prose" || chosen.empty() || request.raw_text.empty()) return;
   if (learning_.size() == 128) learning_.pop_front();
-  learning_.push_back({request, chosen});
+  learning_.push_back({request, chosen, explicit_selection});
 }
 void EngineChannel::FinishLearning(DWORD timeout_ms) {
   pending_.reset();
@@ -86,9 +98,12 @@ bool EngineChannel::Poll(DecodeInput* request, std::vector<Candidate>* candidate
   if (!active_ && (pending_ || !learning_.empty())) {
     const bool learning = !learning_.empty();
     const auto& r = learning ? learning_.front().request : *pending_;
-    json j{{"version",1},{"raw",r.raw_text},{"left",r.left_context.substr(0,512)},
-           {"right",r.right_context.substr(0,512)},{"field",r.field},{"limit",r.candidate_limit}};
-    if (learning) { j["operation"] = "learn"; j["chosen"] = learning_.front().chosen; }
+    json j{{"version",1},{"raw",r.raw_text},{"left",NearbyContext(r.left_context,true)},
+           {"right",NearbyContext(r.right_context,false)},{"field",r.field},{"phase",r.phase},{"limit",r.candidate_limit}};
+    if (learning) {
+      j["operation"] = "learn"; j["chosen"] = learning_.front().chosen;
+      j["explicit"] = learning_.front().explicit_selection;
+    }
     auto data = j.dump(); uint32_t size = static_cast<uint32_t>(data.size());
     std::string frame(reinterpret_cast<const char*>(&size), sizeof(size)); frame += data;
     DWORD written = 0;

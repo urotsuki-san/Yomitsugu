@@ -11,6 +11,11 @@ git clone --filter=blob:none https://github.com/unok/myime.git $taskMyime
 if ($LASTEXITCODE -ne 0) { throw 'myime clone failed.' }
 git -C $taskMyime checkout a8486eca5312556ff88fed7f1850a28843b67977
 if ($LASTEXITCODE -ne 0) { throw 'myime pinned checkout failed.' }
+$taskPatch = Join-Path $taskRoot 'patches/myime-context-conversion.patch'
+git -C $taskMyime apply --check $taskPatch
+if ($LASTEXITCODE -ne 0) { throw 'Conversion patch does not match the pinned source.' }
+git -C $taskMyime apply $taskPatch
+if ($LASTEXITCODE -ne 0) { throw 'Conversion patch failed.' }
 $taskDictionarySubmodule = 'src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage'
 $taskEmojiSubmodule = 'src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_emoji_dictionary_storage'
 git -C $taskMyime submodule update --init --depth 1 -- $taskDictionarySubmodule $taskEmojiSubmodule
@@ -45,7 +50,7 @@ try {
 } finally { Pop-Location }
 $taskSwiftBuild = Join-Path $taskSwiftPackage '.build'
 $taskEngineDll = Get-ChildItem -LiteralPath $taskSwiftBuild -Recurse -File -Filter 'azookey-engine.dll' |
-  Where-Object { $_.FullName -match '\\release\\' } | Select-Object -First 1
+  Where-Object { $_.FullName -match '\\release(?:-windows-x86_64)?\\' } | Select-Object -First 1
 if (-not $taskEngineDll) { throw 'Built azookey-engine.dll missing.' }
 Copy-Item -LiteralPath $taskEngineDll.FullName -Destination $taskOut -Force
 foreach ($taskStem in @('AzooKeyKanaKanjiConverter_EfficientNGram','AzooKeyKanaKanjiConverter_KanaKanjiConverterModuleWithDefaultDictionary')) {

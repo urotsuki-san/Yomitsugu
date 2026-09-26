@@ -891,7 +891,7 @@ struct Seg {
   std::vector<std::string> azo_surfaces;
 };
 
-Seg BuildSeg(Kind kind, size_t s, size_t e, const std::string& raw) {
+Seg BuildSeg(Kind kind, size_t s, size_t e, const std::string& raw, const DecodeInput& input) {
   Seg seg;
   seg.kind = kind;
   seg.start = s;
@@ -961,7 +961,7 @@ Seg BuildSeg(Kind kind, size_t s, size_t e, const std::string& raw) {
     // 挨拶で抜けた「ん」を補って本辞書へ渡す。元の入力も候補に残す。
     auto lookup = kana;
     if (lookup == u8"こにちは" || lookup == u8"こにちわ") lookup = u8"こんにちは";
-    auto azoo = AzookeyConvert(lookup, 24);
+    auto azoo = AzookeyConvert(lookup, 24, input.left_context, input.right_context, input.phase != "typing");
     // 数字を含まない読みでは「3階」などの数字表記を一般語の後に置く。
     if (std::none_of(text.begin(), text.end(), [](unsigned char c) { return std::isdigit(c); })) {
       auto numeral_counter = [](const std::string& surface) {
@@ -1259,9 +1259,11 @@ std::vector<Candidate> Decode(const DecodeInput& input) {
 
     std::vector<Seg> segs;
     bool ja_failed = false;
+    auto segment_input = input;
     for (auto& p : pieces) {
-      Seg s = BuildSeg(p.first, p.second.first, p.second.second, raw);
+      Seg s = BuildSeg(p.first, p.second.first, p.second.second, raw, segment_input);
       if (s.kind == Kind::kJa && !s.ok) ja_failed = true;
+      segment_input.left_context += s.surface;
       segs.push_back(s);
     }
     if (ja_failed) {
@@ -1476,6 +1478,14 @@ bool Session::ApplyCandidates(const DecodeInput& request, std::vector<Candidate>
   return true;
 }
 
+void Session::RefineCandidates() {
+  if (phase_ != "typing" || raw_text_.empty() || manual_lock_) return;
+  phase_ = "end_of_phrase";
+  BumpInteraction();
+  awaiting_candidates_ = true;
+  resolved_revision_ = -1;
+}
+
 void Session::Refresh() {
   candidates_.clear(); selected_index_ = 0;
   if (raw_text_.empty()) return;
@@ -1506,6 +1516,7 @@ void Session::Type(const std::string& text) {
   if (text.empty()) return;
   // TSF側で選択中の候補を確定してから、次の入力を始める。
   if (is_converting()) Commit(visible_text(), "continued_typing");
+  phase_ = deferred_decoding_ ? "typing" : "end_of_phrase";
   raw_text_.insert(raw_cursor_, text); raw_cursor_ += text.size();
   ++revision_; BumpInteraction();
   editing_ = raw_cursor_ != raw_text_.size();
@@ -1561,6 +1572,7 @@ void Session::PressSpace() {
     return;
   }
   if (a == SpaceAction::kStartConversion) {
+    phase_ = "end_of_phrase";
     BumpInteraction();
     manual_lock_ = true;
     editing_ = false;
@@ -1589,6 +1601,7 @@ void Session::PressEnter() {
 
 void Session::Reset() {
   last_commit_learnable_ = false;
+  last_commit_explicit_ = false;
   BumpInteraction(); ++revision_;
   raw_text_.clear(); raw_cursor_ = 0; editing_ = false;
   candidates_.clear(); selected_index_ = 0; manual_lock_ = false;
@@ -1788,6 +1801,7 @@ std::string Session::visible_text() const {
 
 void Session::Commit(const std::string& text, const char* reason) {
   if (text.empty() && raw_text_.empty()) return;
+  last_commit_explicit_ = manual_lock_;
   last_commit_learnable_ = candidates_ready() && field_ == "prose" && selected_index_ >= 0 &&
       selected_index_ < static_cast<int>(candidates_.size()) && !candidates_[selected_index_].is_raw;
   PushCapped(committed_history_, text + "|" + reason);

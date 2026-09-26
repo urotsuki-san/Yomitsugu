@@ -17,6 +17,7 @@ namespace ime {
 namespace {
 using InitializeFn = int (*)(const char*, const char*);
 using ConvertFn = const char* (*)(const char*, int);
+using ContextConvertFn = const char* (*)(const char*, const char*, const char*, int, int);
 using FreeFn = void (*)(const char*);
 using BoolFn = void (*)(bool);
 using IntFn = void (*)(int);
@@ -25,6 +26,7 @@ using StatusFn = const char* (*)();
 std::mutex mutex;
 HMODULE library = nullptr;
 ConvertFn convert = nullptr;
+ContextConvertFn convert_context = nullptr;
 FreeFn free_string = nullptr;
 BoolFn set_enabled = nullptr, set_gpu = nullptr;
 IntFn set_limit = nullptr;
@@ -70,6 +72,7 @@ bool Load() {
     if (!init || !cv || !fr) { FreeLibrary(h); load_error = "missing_exports"; continue; }
     if (!init(nullptr, nullptr)) { FreeLibrary(h); load_error = "initialize_failed"; continue; }
     library = h; convert = cv; free_string = fr;
+    convert_context = reinterpret_cast<ContextConvertFn>(GetProcAddress(h, "ConvertTextWithContext"));
     set_enabled = reinterpret_cast<BoolFn>(GetProcAddress(h, "SetZenzaiEnabled"));
     set_gpu = reinterpret_cast<BoolFn>(GetProcAddress(h, "SetZenzaiUseGpu"));
     set_limit = reinterpret_cast<IntFn>(GetProcAddress(h, "SetZenzaiInferenceLimit"));
@@ -116,20 +119,30 @@ std::vector<AzookeyCandidate> ParseAzookeyCandidates(const std::string& data) {
 }
 bool AzookeyEnsureReady() { std::lock_guard<std::mutex> lock(mutex); return Load(); }
 bool AzookeyAvailable() { std::lock_guard<std::mutex> lock(mutex); return library != nullptr; }
-std::vector<std::string> AzookeyConvert(const std::string& reading, int limit) {
+std::vector<std::string> AzookeyConvert(const std::string& reading, int limit,
+                                     const std::string& left_context, const std::string& right_context, bool refine) {
   if (reading.empty() || limit <= 0 || reading.size() > 4096) return {};
   std::lock_guard<std::mutex> lock(mutex);
   if (!Load()) return {};
-  auto found = cache.find(reading);
+  auto bound = [](const std::string& text, bool tail) {
+    const auto offsets = ScalarOffsets(text);
+    const auto count = offsets.size()-1;
+    if (count <= 128) return text;
+    return tail ? text.substr(offsets[count-128]) : text.substr(0,offsets[128]);
+  };
+  const auto left = bound(left_context,true), right = bound(right_context,false);
+  const auto key = nlohmann::json::array({reading,left,right,refine}).dump();
+  auto found = cache.find(key);
   if (found == cache.end()) {
-    auto items = ParseAzookeyCandidates(Take(convert(reading.c_str(), 0)));
+    auto items = ParseAzookeyCandidates(Take(convert_context ?
+        convert_context(reading.c_str(), left.c_str(), right.c_str(), 0, refine ? 1 : 0) : convert(reading.c_str(), 0)));
     auto offsets = ScalarOffsets(reading);
     const auto count = offsets.size() - 1;
     std::stable_sort(items.begin(), items.end(), [count](const auto& a, const auto& b) {
       return (a.corresponding_count == count) > (b.corresponding_count == count);
     });
     std::vector<std::string> values;
-    size_t bytes = reading.size();
+    size_t bytes = key.size();
     for (auto& item : items) {
       if (item.corresponding_count > count) continue;
       auto text = item.text + reading.substr(offsets[item.corresponding_count]);
@@ -142,8 +155,8 @@ std::vector<std::string> AzookeyConvert(const std::string& reading, int limit) {
       auto old = cache.find(ages.back()); cache_bytes -= old->second.bytes;
       cache.erase(old); ages.pop_back();
     }
-    ages.push_front(reading);
-    found = cache.emplace(reading, CacheEntry{std::move(values), ages.begin(), bytes}).first;
+    ages.push_front(key);
+    found = cache.emplace(key, CacheEntry{std::move(values), ages.begin(), bytes}).first;
     cache_bytes += bytes;
   } else ages.splice(ages.begin(), ages, found->second.age);
   auto result = found->second.values;
