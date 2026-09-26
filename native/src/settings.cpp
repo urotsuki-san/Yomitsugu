@@ -11,6 +11,7 @@
 #include "user_dictionary.h"
 #include "learning_store.h"
 #include "app_update.h"
+#include "dictionary_status.h"
 #include <memory>
 
 namespace {
@@ -32,6 +33,8 @@ bool app_updating = false;
 std::filesystem::path base, user_dir;
 std::wstring public_status, user_status, status_note;
 std::wstring learning_status;
+std::wstring dictionary_updated, dictionary_checked;
+ime::DictionaryStatus dictionary_status;
 HFONT title_font = nullptr, section_font = nullptr, body_font = nullptr, small_font = nullptr;
 
 COLORREF Ink() { return RGB(26, 43, 65); }
@@ -67,9 +70,13 @@ void RepaintStatus() {
 void RefreshStatus() {
   std::error_code ec;
   auto cached_public_file = user_dir / L"public_dictionary.tsv";
-  auto public_file = ime::PublicDictionaryPath(base / L"engine" / L"public_dictionary.tsv", cached_public_file);
   auto user_file = user_dir / L"user_dictionary.tsv";
-  public_status = public_file == cached_public_file ? L"更新済み・利用可能" : L"同梱版を使用中";
+  dictionary_status=ime::ReadDictionaryStatus(base/L"engine"/L"public_dictionary.tsv",cached_public_file);
+  public_status=dictionary_status.bundled?L"同梱版・最新状況は未確認":L"更新版・最新状況は未確認";
+  if(dictionary_status.result=="updated" || dictionary_status.result=="unchanged") public_status=L"確認時点で最新版";
+  else if(dictionary_status.result=="failed") public_status=L"最新状況を確認できません";
+  dictionary_updated=L"最終更新: "+(dictionary_status.updated_at.empty()?(dictionary_status.bundled?L"同梱版":L"記録なし"):ime::DictionaryTimeLabel(dictionary_status.updated_at));
+  dictionary_checked=L"最終確認: "+ime::DictionaryTimeLabel(dictionary_status.checked_at);
   user_status = std::filesystem::exists(user_file, ec) ? L"登録済み" : L"未作成";
   ime::LearningStore learning(user_dir);
   learning_status = L"学習した候補: " + std::to_wstring(learning.size()) + L"件";
@@ -194,7 +201,7 @@ void DrawAction(const DRAWITEMSTRUCT* item) {
   switch (item->CtlID) {
     case kOpen: heading=L"ユーザー辞書を編集"; description=L"登録した単語を確認・修正"; mark=L"✎"; break;
     case kImport: heading=L"TSV辞書を取り込む"; description=L"今の辞書をTSVの内容で置換"; mark=L"＋"; break;
-    case kUpdate: heading=L"公開辞書を更新"; description=L"一般語・外来語・記号を取得"; mark=L"↻"; break;
+    case kUpdate: heading=L"公開辞書を確認・更新"; description=L"最新データを取得して比較"; mark=L"↻"; break;
     case kAppUpdate: heading=L"アプリを更新"; description=L"最新版を確認してインストール"; mark=L"↓"; break;
   }
   RECT icon_area{area.left+17, area.top+19, area.left+62, area.top+64};
@@ -233,7 +240,7 @@ void DrawDashboard(HWND hwnd, HDC target) {
   Text(dc,small_font,RGB(178,206,235),L"PREVIEW 0.2.9",version,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
   RECT status_card{34,169,690,288};
   Panel(dc,status_card,RGB(255,255,255),RGB(222,230,240),18);
-  RECT public_label{54,185,326,207}, public_value{54,210,330,243};
+  RECT public_label{54,178,330,198}, public_value{54,198,330,229};
   RECT user_label{365,185,660,207}, user_value{365,210,660,243};
   Text(dc,small_font,Muted(),L"公開辞書",public_label,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   Text(dc,section_font,Ink(),public_status.c_str(),public_value,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
@@ -241,8 +248,11 @@ void DrawDashboard(HWND hwnd, HDC target) {
   Text(dc,section_font,Ink(),user_status.c_str(),user_value,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   RECT divider{346,187,347,242}; auto line = CreateSolidBrush(RGB(229,235,242));
   FillRect(dc,&divider,line); DeleteObject(line);
-  RECT note{54,251,665,277};
-  Text(dc,small_font,RGB(58,126,124),status_note.c_str(),note,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  RECT update_date{54,232,330,254}, check_date{54,256,330,278};
+  Text(dc,small_font,Muted(),dictionary_updated.c_str(),update_date,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,small_font,Muted(),dictionary_checked.c_str(),check_date,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  RECT note{365,246,665,282};
+  Text(dc,small_font,RGB(58,126,124),status_note.c_str(),note,DT_LEFT|DT_WORDBREAK);
   RECT section{35,302,685,335};
   Text(dc,section_font,Ink(),L"操作",section,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   RECT learning_panel{34,544,690,650};
@@ -269,7 +279,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) 
                                CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Yu Gothic UI");
       const struct { int id; const wchar_t* text; int x,y; } buttons[] = {
         {kOpen, L"ユーザー辞書を編集", 34,342}, {kImport, L"TSV辞書を取り込む", 370,342},
-        {kUpdate, L"公開辞書を更新", 34,440}, {kAppUpdate, L"アプリを更新", 370,440}};
+        {kUpdate, L"公開辞書を確認・更新", 34,440}, {kAppUpdate, L"アプリを更新", 370,440}};
       for (const auto& button : buttons) {
         auto control = CreateWindowW(L"BUTTON", button.text, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                     button.x, button.y, 320, 87, hwnd,
@@ -328,7 +338,8 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) 
       updating = false; EnableWindow(update_button, TRUE);
       if (wparam == 0) {
         RefreshStatus();
-        MessageBoxW(hwnd, L"公開辞書を更新しました。次の変換から有効です。", L"Yomitsugu", MB_OK);
+        MessageBoxW(hwnd, dictionary_status.result=="unchanged"?L"公開辞書に変更はありません。最新の内容を確認しました。":
+                    L"公開辞書を更新しました。次の変換から有効です。", L"Yomitsugu", MB_OK);
       } else {
         RefreshStatus();
         MessageBoxW(hwnd, L"更新できませんでした。ネットワーク接続を確認してください。辞書は更新前の状態を維持します。",

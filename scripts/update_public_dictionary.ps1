@@ -1,5 +1,6 @@
 ﻿# MozcとEDRDGの公開辞書を取得し、変換用のTSVを生成する。
-param([string]$OutputPath = (Join-Path $env:LOCALAPPDATA 'ImeMixed\public_dictionary.tsv'), [string]$SourceDirectory = '')
+param([string]$OutputPath = (Join-Path $env:LOCALAPPDATA 'ImeMixed\public_dictionary.tsv'), [string]$SourceDirectory = '',
+      [string]$BundledPath = (Join-Path $PSScriptRoot 'engine\public_dictionary.tsv'))
 $ErrorActionPreference = 'Stop'
 $OutputPath = [IO.Path]::GetFullPath($OutputPath)
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -47,6 +48,15 @@ function Write-Atomic([string]$path, [byte[]]$bytes) {
     if ([IO.File]::Exists($taskBackup)) { [IO.File]::Delete($taskBackup) }
   }
 }
+$taskMetaPath = [IO.Path]::ChangeExtension($OutputPath,'.sources.json')
+$taskStatusPath = [IO.Path]::ChangeExtension($OutputPath,'.status.json')
+$taskCheckedAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+$taskUtf8 = New-Object Text.UTF8Encoding($false)
+$taskPreviousMetadata = $null
+if ([IO.File]::Exists($taskMetaPath) -and (Get-Item -LiteralPath $taskMetaPath).Length -le 8192) {
+  try { $taskPreviousMetadata = [IO.File]::ReadAllText($taskMetaPath) | ConvertFrom-Json } catch { }
+}
+try {
 Add-Type -Path (Join-Path $PSScriptRoot 'PublicDictionaryBuilder.cs')
 if ($SourceDirectory) {
   $taskSymbolBytes = [IO.File]::ReadAllBytes((Join-Path $SourceDirectory 'symbol.tsv'))
@@ -68,7 +78,6 @@ try {
   $taskGlossary = (New-Object Text.UTF8Encoding($false,$true)).GetString($taskDecoded.ToArray())
 } finally { $taskDecoded.Dispose(); $taskGzip.Dispose(); $taskEdictStream.Dispose() }
 $taskBuilt = [YomitsuguDictionaryBuilder]::Build($taskGlossary,[Text.Encoding]::UTF8.GetString($taskSymbolBytes))
-$taskUtf8 = New-Object Text.UTF8Encoding($false)
 $taskPayload = $taskUtf8.GetBytes($taskBuilt.Text)
 if ($taskPayload.Length -gt 32MB) { throw 'Generated dictionary exceeds the engine limit.' }
 $taskMetadata = [ordered]@{
@@ -83,9 +92,25 @@ $taskMetadata = [ordered]@{
   english_words=$taskBuilt.EnglishWords
   entries=$taskBuilt.Entries
 }
-$taskMetaPath = [IO.Path]::ChangeExtension($OutputPath,'.sources.json')
+$taskPriorFile = if ([IO.File]::Exists($OutputPath)) { $OutputPath } else { $BundledPath }
+$taskPriorHash = ''
+if ([IO.File]::Exists($taskPriorFile) -and (Get-Item -LiteralPath $taskPriorFile).Length -le 32MB) {
+  $taskPriorHash = (Get-FileHash -LiteralPath $taskPriorFile -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+$taskChanged = $taskPriorHash -ne $taskMetadata.output_sha256
+$taskCheckedAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
+$taskMetadata.checked_at_utc = $taskCheckedAt
+$taskMetadata.updated_at_utc = if ($taskChanged) { $taskCheckedAt } elseif ($taskPreviousMetadata.output_sha256 -eq $taskPriorHash) { $taskPreviousMetadata.updated_at_utc } else { $null }
+$taskMetadata.update_result = if ($taskChanged) { 'updated' } else { 'unchanged' }
 $taskMetaBytes = $taskUtf8.GetBytes(($taskMetadata | ConvertTo-Json -Depth 5) + "`n")
-Write-Atomic $OutputPath $taskPayload
+if ($taskChanged -or -not [IO.File]::Exists($OutputPath)) { Write-Atomic $OutputPath $taskPayload }
 Write-Atomic $taskMetaPath $taskMetaBytes
-Write-Output "Updated public dictionary: $OutputPath"
+$taskStatus = [ordered]@{format_version=1;checked_at_utc=$taskCheckedAt;result=$taskMetadata.update_result;output_sha256=$taskMetadata.output_sha256}
+Write-Atomic $taskStatusPath ($taskUtf8.GetBytes(($taskStatus | ConvertTo-Json) + "`n"))
+Write-Output ("Public dictionary: " + $taskMetadata.update_result)
 Write-Output ($taskMetadata | ConvertTo-Json -Compress -Depth 5)
+} catch {
+  $taskFailure = [ordered]@{format_version=1;checked_at_utc=[DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ');result='failed'}
+  try { Write-Atomic $taskStatusPath ($taskUtf8.GetBytes(($taskFailure | ConvertTo-Json) + "`n")) } catch { }
+  throw
+}

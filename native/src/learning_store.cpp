@@ -85,7 +85,7 @@ void LearningStore::Load(bool force) {
     for (const auto& value : data["entries"]) {
       Entry entry{value.at("key").get<std::string>(), value.at("text").get<std::string>(),
                   value.at("count").get<unsigned>(), value.at("used").get<std::uint64_t>()};
-      if (!entry.key.empty() && entry.key.size() <= 96 && !entry.text.empty() && entry.text.size() <= 256 && entry.count)
+      if (!entry.key.empty() && entry.key.size() <= 96 && !entry.text.empty() && entry.text.size() <= 256 && entry.count && entry.used < 0x7fffffffffffffffull)
         entries_.push_back(std::move(entry));
       if (entries_.size() == kMaximumEntries) break;
     }
@@ -112,7 +112,10 @@ bool LearningStore::Record(const DecodeInput& input, const std::string& chosen) 
   if (found == entries_.end()) { entries_.push_back({key, chosen, 0, 0}); found = entries_.end() - 1; }
   found->count = (std::min)(found->count, 100000u) + 1;
   FILETIME time{}; GetSystemTimeAsFileTime(&time);
-  found->used = (static_cast<std::uint64_t>(time.dwHighDateTime) << 32) | time.dwLowDateTime;
+  auto next_used = (static_cast<std::uint64_t>(time.dwHighDateTime) << 32) | time.dwLowDateTime;
+  // 同じ時計刻み内の選択や時計の巻き戻しでも、後の選択を優先する。
+  for (const auto& entry : entries_) next_used = (std::max)(next_used, entry.used + 1);
+  found->used = next_used;
   std::stable_sort(entries_.begin(), entries_.end(), [](const Entry& a, const Entry& b) { return a.used > b.used; });
   if (entries_.size() > kMaximumEntries) entries_.resize(kMaximumEntries);
   return Save();

@@ -8,6 +8,7 @@
 #include "engine_channel.h"
 #include "user_dictionary.h"
 #include "learning_store.h"
+#include "dictionary_status.h"
 namespace {
 int failures = 0, checks = 0;
 void Check(bool pass, const char* name) { ++checks; if (!pass) ++failures; std::cout << (pass ? "PASS " : "FAIL ") << name << '\n'; }
@@ -18,6 +19,31 @@ bool Contains(const std::vector<ime::Candidate>& list, const std::string& word) 
 }
 int wmain(int argc, wchar_t** argv) {
   using namespace ime;
+  {
+    const auto folder=std::filesystem::temp_directory_path()/(L"yomitsugu_status_"+std::to_wstring(GetCurrentProcessId())+L"_"+std::to_wstring(GetTickCount64()));
+    std::filesystem::create_directory(folder);
+    const auto bundled=folder/L"bundled.tsv",cached=folder/L"public_dictionary.tsv";
+    {std::ofstream file(bundled);file<<"test";}
+    {std::ofstream file(folder/L"bundled.sources.json");file<<R"({"format_version":2,"entries":299521,"output_sha256":"original"})";}
+    auto status=ReadDictionaryStatus(bundled,cached);
+    Check(status.bundled&&status.result=="unknown"&&status.entries==299521,"bundled dictionary is not presented as recently checked");
+    {std::ofstream file(cached);file<<"test";}
+    {std::ofstream file(folder/L"public_dictionary.sources.json");file<<R"({"format_version":2,"entries":299521,"output_sha256":"original","checked_at_utc":"2026-09-26T01:00:00Z","update_result":"unchanged"})";}
+    status=ReadDictionaryStatus(bundled,cached);
+    Check(status.bundled&&status.result=="unchanged"&&!status.checked_at.empty()&&status.updated_at.empty(),"unchanged bundled data records check separately from update");
+    {std::ofstream file(folder/L"public_dictionary.sources.json");file<<R"({"format_version":2,"entries":299522,"output_sha256":"new","updated_at_utc":"2026-09-26T01:00:00Z","checked_at_utc":"2026-09-26T01:02:00Z","update_result":"unchanged"})";}
+    status=ReadDictionaryStatus(bundled,cached);
+    Check(!status.bundled&&status.updated_at!=status.checked_at&&status.result=="unchanged","update date survives a later unchanged check");
+    {std::ofstream file(folder/L"public_dictionary.status.json");file<<R"({"format_version":1,"checked_at_utc":"2026-09-26T01:03:00Z","result":"failed"})";}
+    status=ReadDictionaryStatus(bundled,cached);
+    Check(status.result=="failed"&&status.updated_at=="2026-09-26T01:00:00Z","failed check preserves installed dictionary update date");
+    Check(DictionaryTimeLabel("bad")==L"記録なし"&&DictionaryTimeLabel("2026-02-31T00:00:00Z")==L"記録なし","invalid dictionary dates rejected");
+    Check(DictionaryTimeLabel("2026-09-26T01:00:00Z")!=L"記録なし","UTC check date rendered in local time");
+    {std::ofstream file(folder/L"public_dictionary.status.json");file<<"broken";}
+    Check(ReadDictionaryStatus(bundled,cached).result=="unchanged","damaged attempt status falls back to valid provenance");
+    for(const auto& file:std::filesystem::directory_iterator(folder)) std::filesystem::remove(file.path());
+    std::filesystem::remove(folder);
+  }
   wchar_t own_module[32768]{}; GetModuleFileNameW(nullptr, own_module, 32768);
   auto public_host = std::filesystem::path(own_module).parent_path()/L"ime_engine_host.exe";
   if (argc == 2) public_host = argv[1];

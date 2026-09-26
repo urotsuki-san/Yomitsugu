@@ -32,6 +32,9 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
           cmake --build native/build --config Release --target app_update_test engine_test debug_dump ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
+      - name: Dictionary update history
+        shell: pwsh
+        run: scripts/ci/test_dictionary_update.ps1
   installer-preview:
     if: github.event_name != 'pull_request'
     needs: source-checks
