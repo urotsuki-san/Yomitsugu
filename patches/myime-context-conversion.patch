@@ -55,6 +55,35 @@ index 9bc1f6f..eada7ad 100644
      func candidateEvaluate(
          convertTarget: String,
          convertTargetCursorPosition: Int? = nil,
+diff --git a/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift b/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift
+index fff5b62..91a2e71 100644
+--- a/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift
++++ b/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConversionAlgorithms/Zenzai/Zenz/ZenzContext.swift
+@@ -581,6 +581,12 @@ final class ZenzContext {
+     }
+ 
+     private func getLogits(tokens: [llama_token], logits_start_index: Int = 0, seqId: llama_seq_id = 0) -> UnsafeMutablePointer<Float>? {
++        // 固定長バッファへ書く前に、入力と評価位置の範囲を検査する。
++        guard !tokens.isEmpty, tokens.count <= Int(n_len),
++              tokens.count <= Int(llama_n_ctx(context)),
++              logits_start_index >= 0, logits_start_index < tokens.count else {
++            return nil
++        }
+         let currentPrevInput = self.prevInputBySeq[seqId] ?? []
+         var effectivePrevInput = currentPrevInput
+ 
+@@ -618,11 +624,6 @@ final class ZenzContext {
+             debug("new pos max:", llama_kv_cache_seq_pos_max(self.context, seqId), "commonTokens:", commonTokens.count)
+         }
+         self.batch.n_tokens = 0
+-        let n_ctx = llama_n_ctx(context)
+-        let n_kv_req = tokens.count + (Int(n_len) - tokens.count)
+-        if n_kv_req > n_ctx {
+-            debug("error: n_kv_req > n_ctx, the required KV cache size is not big enough")
+-        }
+         for i in tokens.indices.dropFirst(prefixCacheCount) {
+             llama_batch_add(&self.batch, tokens[i], Int32(i), [seqId], logits: logits_start_index <= i)
+         }
 diff --git a/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift b/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift
 index aa81ebf..e6db481 100644
 --- a/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModule/ConverterAPI/KanaKanjiConverter.swift

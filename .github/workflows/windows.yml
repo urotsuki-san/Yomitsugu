@@ -97,6 +97,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'release_test failed' }
           python scripts/ci/engine_stability.py native/build/Release/ime_engine_host.exe
           if ($LASTEXITCODE -ne 0) { throw 'Engine stability failed' }
+          python scripts/ci/model_boundary.py native/build/Release/debug_dump.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Model capacity boundary failed' }
           python scripts/evaluate_conversion.py --output audit/conversion-quality.json --check --baseline native/tests/conversion_baseline.json
           if ($LASTEXITCODE -ne 0) { throw 'conversion quality regression' }
           python scripts/ci/context_quality.py native/build/Release/ime_engine_host.exe tests/context_conversion.json audit/context-quality.json --check
