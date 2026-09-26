@@ -7,14 +7,14 @@
 <img src="docs/assets/readme/yomitsugu-showcase-hero-v2.png" alt="Yomitsugu のタイトルと、端末を持つキャラクター。" width="100%">
 
 <p>
-  <img alt="Version 0.2.9 preview" src="https://img.shields.io/badge/version-0.2.9%20preview-7c3aed?style=for-the-badge">
+  <img alt="Version 0.2.10 preview" src="https://img.shields.io/badge/version-0.2.10%20preview-7c3aed?style=for-the-badge">
   <img alt="Windows x64" src="https://img.shields.io/badge/platform-Windows%20x64-334155?style=for-the-badge">
   <img alt="Local conversion" src="https://img.shields.io/badge/conversion-local-0f766e?style=for-the-badge">
   <a href="https://github.com/urotsuki-san/Yomitsugu/actions/workflows/windows.yml"><img alt="Windows CI" src="https://img.shields.io/github/actions/workflow/status/urotsuki-san/Yomitsugu/windows.yml?branch=main&style=for-the-badge&label=CI"></a>
   <a href="LICENSE"><img alt="License: MIT for original code" src="https://img.shields.io/badge/code-MIT-0f766e?style=for-the-badge"></a>
 </p>
 
-**[Windows 版をダウンロード（0.2.9 Preview）](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.9-preview.1/Yomitsugu-0.2.9-preview-x64-setup.exe)**
+**[Windows 版をダウンロード（0.2.10 Preview）](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.10-preview.1/Yomitsugu-0.2.10-preview-x64-setup.exe)**
 
 **[動いているところ](#動いているところ)** · **[何ができるか](#何ができるか)** · **[アーキテクチャ](#アーキテクチャ)** · **[インストール](#インストール)** · **[現在の範囲](#現在の範囲)** · **[ライセンス](#ライセンス)**
 
@@ -46,7 +46,7 @@
 | `yajirushi` | → |
 | `ltu` / `a` / `.` | っ / あ / 。 |
 
-英語を交えた文章を、モードを切り替えずに入力できます。候補は入力中に変わり、`Space` で選んで `Enter` で確定します。選んだ候補を学習し、次の変換で優先します。
+英語を交えた文章を、モードを切り替えずに入力できます。候補は入力中に変わり、`Space` で選んで `Enter` で確定します。同じ読みと文脈では、前に選び直した候補を優先します。
 
 よく使う名前や用語はユーザー辞書に登録できます。公開辞書の更新、学習の設定、アプリの更新も設定画面から行えます。変換はPC内で処理し、入力文やユーザー辞書を外部へ送信しません。
 
@@ -68,7 +68,7 @@ flowchart LR
 
 現在は**評価版**です。
 
-1. [Windows 用インストーラーをダウンロード](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.9-preview.1/Yomitsugu-0.2.9-preview-x64-setup.exe)します。
+1. [Windows 用インストーラーをダウンロード](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.10-preview.1/Yomitsugu-0.2.10-preview-x64-setup.exe)します。
 2. ダウンロードした `.exe` を実行し、画面の案内に従います。管理者権限が必要です。未署名のため、Windows が警告を表示する場合があります。
 3. インストール後、`Win` + `Space` で Yomitsugu を選びます。
 

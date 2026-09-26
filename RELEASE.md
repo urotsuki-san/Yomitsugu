@@ -1,10 +1,10 @@
-# Yomitsugu 0.2.9 Preview
+# Yomitsugu 0.2.10 Preview
 
 ローマ字を打つそばから、日本語に変える Windows IME です。英語を交えた文章も、モードを切り替えずに入力できます。
 
 ## インストール
 
-1. [Windows x64用インストーラー](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.9-preview.1/Yomitsugu-0.2.9-preview-x64-setup.exe)をダウンロードします。
+1. [Windows x64用インストーラー](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.10-preview.1/Yomitsugu-0.2.10-preview-x64-setup.exe)をダウンロードします。
 2. ファイルを開き、画面の案内に従います。管理者権限が必要です。
 3. `Win` + `Space` で Yomitsugu を選びます。
 
@@ -40,7 +40,7 @@
 
 ## 候補の学習
 
-確定した候補をPC内に記録し、同じ読みの次の変換で優先します。記録は最大2,048件です。ユーザー辞書への登録がある場合は、そちらを優先します。
+手で選び直した候補を優先して学習します。同じ読みと文脈の変換に反映し、PC内に最大2,048件を記録します。ユーザー辞書への登録がある場合は、そちらを優先します。
 
 設定画面の「候補の選択を学習する」で切り替えられます。「学習履歴を削除」を押すと、学習した順位を初期状態に戻せます。ユーザー辞書はそのまま残ります。
 
