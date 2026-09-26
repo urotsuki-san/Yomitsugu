@@ -19,11 +19,18 @@ function Invoke-Update([string]$Name, [string]$Output, [string]$Sources, [string
     if (-not $Bundle) { $Bundle = Join-Path $taskAudit 'no-bundle.tsv' }
     $taskArguments = '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' + $taskUpdater + '" -OutputPath "' + $Output + '" -SourceDirectory "' + $Sources + '" -BundledPath "' + $Bundle + '"'
     $taskProcess = Start-Process -FilePath $taskPowerShell -ArgumentList $taskArguments -WindowStyle Hidden -PassThru -Wait -RedirectStandardOutput (Join-Path $taskAudit ($Name + '.log')) -RedirectStandardError (Join-Path $taskAudit ($Name + '.err'))
-    if (($taskProcess.ExitCode -ne 0) -ne $ExpectFailure) { throw "Unexpected updater result: $Name ($($taskProcess.ExitCode))" }
+    if (($taskProcess.ExitCode -ne 0) -ne $ExpectFailure) {
+        Get-Content -LiteralPath (Join-Path $taskAudit ($Name + '.err'))
+        throw "Unexpected updater result: $Name ($($taskProcess.ExitCode)); logs: $taskAudit"
+    }
 }
 function Assert-Status([bool]$Condition, [string]$Message) {
     if (-not $Condition) { throw $Message }
     Write-Output ('PASS ' + $Message)
+}
+function Utc-Stamp($Value) {
+    if ($Value -is [DateTime]) { return $Value.ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ') }
+    return [string]$Value
 }
 Invoke-Update 'first' $taskOutput $SourceDirectory (Join-Path $taskAudit 'no-bundle.tsv')
 $taskFirst = Get-Content -LiteralPath $taskMetadata -Raw | ConvertFrom-Json
@@ -34,7 +41,7 @@ $taskFirst.updated_at_utc = '2026-01-01T00:00:00Z'
 [IO.File]::WriteAllText($taskMetadata, ($taskFirst | ConvertTo-Json -Depth 5), $taskUtf8)
 Invoke-Update 'unchanged' $taskOutput $SourceDirectory ''
 $taskSame = Get-Content -LiteralPath $taskMetadata -Raw | ConvertFrom-Json
-Assert-Status ($taskSame.update_result -eq 'unchanged' -and $taskSame.updated_at_utc -eq '2026-01-01T00:00:00Z') 'Unchanged check preserves update date'
+Assert-Status ($taskSame.update_result -eq 'unchanged' -and (Utc-Stamp $taskSame.updated_at_utc) -eq '2026-01-01T00:00:00Z') 'Unchanged check preserves update date'
 Assert-Status ($taskSame.checked_at_utc -ge $taskFirst.checked_at_utc -and $taskSame.checked_at_utc -ne $taskSame.updated_at_utc) 'Latest check is recorded separately'
 Assert-Status ((Get-Item -LiteralPath $taskOutput).LastWriteTimeUtc -eq $taskMtime) 'Unchanged dictionary is not rewritten'
 $taskMetadataHash = (Get-FileHash -LiteralPath $taskMetadata -Algorithm SHA256).Hash

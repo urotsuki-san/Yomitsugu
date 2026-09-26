@@ -95,7 +95,7 @@ $taskMetadata = [ordered]@{
 $taskPriorFile = if ([IO.File]::Exists($OutputPath)) { $OutputPath } else { $BundledPath }
 $taskPriorHash = ''
 if ([IO.File]::Exists($taskPriorFile) -and (Get-Item -LiteralPath $taskPriorFile).Length -le 32MB) {
-  $taskPriorHash = (Get-FileHash -LiteralPath $taskPriorFile -Algorithm SHA256).Hash.ToLowerInvariant()
+  $taskPriorHash = Get-Sha256 ([IO.File]::ReadAllBytes($taskPriorFile))
 }
 $taskChanged = $taskPriorHash -ne $taskMetadata.output_sha256
 $taskCheckedAt = [DateTime]::UtcNow.ToString('yyyy-MM-ddTHH:mm:ssZ')
