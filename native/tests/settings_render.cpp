@@ -11,6 +11,8 @@ int wmain(int argc, wchar_t** argv) {
   base = fixture; user_dir = fixture / L"profile";
   std::filesystem::create_directories(base / L"engine");
   std::filesystem::create_directory(user_dir);
+  { std::ofstream file(user_dir / L"user_dictionary.tsv");
+    file << u8"よみつぐ\tYomitsugu\t固有名詞\nかいはつめも\t開発メモ\t名詞\nれびゅー\tコードレビュー\t名詞\n"; }
   { std::ofstream file(base / L"engine/public_dictionary.tsv"); file << "fixture"; }
   { std::ofstream file(base / L"engine/public_dictionary.sources.json"); file << R"({"format_version":2,"entries":299521})"; }
   if (mode != L"unknown") {
