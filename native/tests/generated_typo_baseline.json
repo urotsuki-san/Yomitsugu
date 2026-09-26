@@ -1,0 +1,780 @@
+{
+  "version": "0.2.10-preview",
+  "results": [
+    {
+      "index": "insuto-ru/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "insuto-ru/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "insuto-ru/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "insuto-ru/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "insuto-ru/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "an'insuto-ru/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "an'insuto-ru/omission",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "an'insuto-ru/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "an'insuto-ru/swap",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "an'insuto-ru/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "konpyu-ta-/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "konpyu-ta-/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "konpyu-ta-/duplicate",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "konpyu-ta-/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "konpyu-ta-/neighbor",
+      "rank": 3,
+      "previous_rank": 3
+    },
+    {
+      "index": "inta-netto/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "inta-netto/omission",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "inta-netto/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "inta-netto/swap",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "inta-netto/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "apurike-syon/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "apurike-syon/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "apurike-syon/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "apurike-syon/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "apurike-syon/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "sofutowea/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "sofutowea/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "sofutowea/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "sofutowea/swap",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "sofutowea/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "ha-dowea/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "ha-dowea/omission",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "ha-dowea/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "ha-dowea/swap",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "ha-dowea/neighbor",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "ki-bo-do/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "ki-bo-do/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "ki-bo-do/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "ki-bo-do/swap",
+      "rank": 1,
+      "previous_rank": 2
+    },
+    {
+      "index": "ki-bo-do/neighbor",
+      "rank": 5,
+      "previous_rank": 5
+    },
+    {
+      "index": "burauza-/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "burauza-/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "burauza-/duplicate",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "burauza-/swap",
+      "rank": 3,
+      "previous_rank": 3
+    },
+    {
+      "index": "burauza-/neighbor",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "fairu/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "fairu/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "fairu/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "fairu/swap",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "fairu/neighbor",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "pasuwa-do/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "pasuwa-do/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "pasuwa-do/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "pasuwa-do/swap",
+      "rank": 1,
+      "previous_rank": 2
+    },
+    {
+      "index": "pasuwa-do/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "akaunto/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "akaunto/omission",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "akaunto/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "akaunto/swap",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "akaunto/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "roguin/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "roguin/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "roguin/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "roguin/swap",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "roguin/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "roguauto/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "roguauto/omission",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "roguauto/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "roguauto/swap",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "roguauto/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "de-tabe-su/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "de-tabe-su/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "de-tabe-su/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "de-tabe-su/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "de-tabe-su/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "puroguramingu/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "puroguramingu/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "puroguramingu/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "puroguramingu/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "puroguramingu/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "arugorizumu/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "arugorizumu/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "arugorizumu/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "arugorizumu/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "arugorizumu/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "sekyurithi/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "sekyurithi/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "sekyurithi/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "sekyurithi/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "sekyurithi/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "puraibasi-/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "puraibasi-/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "puraibasi-/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "puraibasi-/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "puraibasi-/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "ba-jonn/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "ba-jonn/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "ba-jonn/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "ba-jonn/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "ba-jonn/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "appude-to/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "appude-to/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "appude-to/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "appude-to/swap",
+      "rank": 1,
+      "previous_rank": 2
+    },
+    {
+      "index": "appude-to/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "daunro-do/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "daunro-do/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "daunro-do/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "daunro-do/swap",
+      "rank": 1,
+      "previous_rank": 2
+    },
+    {
+      "index": "daunro-do/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "appuro-do/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "appuro-do/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "appuro-do/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "appuro-do/swap",
+      "rank": 1,
+      "previous_rank": 2
+    },
+    {
+      "index": "appuro-do/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "bakkuaxtupu/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "bakkuaxtupu/omission",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "bakkuaxtupu/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "bakkuaxtupu/swap",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "bakkuaxtupu/neighbor",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "bakkusupe-su/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "bakkusupe-su/omission",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "bakkusupe-su/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "bakkusupe-su/swap",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "bakkusupe-su/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "ko-hi-/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "ko-hi-/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "ko-hi-/duplicate",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "ko-hi-/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "ko-hi-/neighbor",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "resutoran/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "resutoran/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "resutoran/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "resutoran/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "resutoran/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "chokore-to/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "chokore-to/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "chokore-to/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "chokore-to/swap",
+      "rank": 1,
+      "previous_rank": 2
+    },
+    {
+      "index": "chokore-to/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "akusesari-/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "akusesari-/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "akusesari-/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "akusesari-/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "akusesari-/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "komyunike-syon/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "komyunike-syon/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "komyunike-syon/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "komyunike-syon/swap",
+      "rank": 1,
+      "previous_rank": 2
+    },
+    {
+      "index": "komyunike-syon/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    },
+    {
+      "index": "dhisupurei/valid",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "dhisupurei/omission",
+      "rank": null,
+      "previous_rank": null
+    },
+    {
+      "index": "dhisupurei/duplicate",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "dhisupurei/swap",
+      "rank": 1,
+      "previous_rank": 1
+    },
+    {
+      "index": "dhisupurei/neighbor",
+      "rank": 2,
+      "previous_rank": 2
+    }
+  ]
+}

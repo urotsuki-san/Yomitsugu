@@ -327,6 +327,14 @@ void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Cand
   // 表記の正規化は優先し、曖昧な1文字の補正は後続候補に置く。
   bool promote=matches.front().repair.promote &&
       (matches.size()==1 || matches[1].repair.cost>matches[0].repair.cost);
+  if (!original_ok && matches.front().suffix.empty() && matches.front().repair.cost<=12 &&
+      (matches.size()==1 || matches[1].repair.cost>matches[0].repair.cost) && !candidates->empty()) {
+    const auto& surface=candidates->front().output_text;
+    const bool latin=std::any_of(surface.begin(),surface.end(),[](unsigned char c){return c>='a'&&c<='z';});
+    const bool japanese=std::any_of(surface.begin(),surface.end(),[](unsigned char c){return c>=128;});
+    // 壊れたローマ字の一部だけを変換するより、一意に復元できる辞書語を優先する。
+    if (latin && japanese) promote=true;
+  }
   // 元の文頭が辞書に一致する場合は、その読みを優先する。
   for (size_t end=original.size(); promote && end>=12; --end) {
     if (entries_.count(original.substr(0,end)) && end+6>=matches.front().reading.size()) {

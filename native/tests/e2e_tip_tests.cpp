@@ -469,6 +469,7 @@ int main(int argc, char** argv) {
     const std::pair<const char*, const wchar_t*> reported[] = {
       {"insuto-ru", L"インストール"}, {"innsuto-ru", L"インストール"},
       {"aninsuto-ru", L"アンインストール"}, {"anninsuto-ru", L"アンインストール"},
+      {"de-taeb-su", L"データベース"},
       {"softwarewokoushinsuru", L"softwareを更新する"}
     };
     for (const auto& item : reported) {

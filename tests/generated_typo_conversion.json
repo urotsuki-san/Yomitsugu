@@ -1,0 +1,1087 @@
+[
+  {
+    "index": "insuto-ru/valid",
+    "raw": "insuto-ru",
+    "expected_output": [
+      "インストール"
+    ]
+  },
+  {
+    "index": "insuto-ru/omission",
+    "raw": "insuo-ru",
+    "expected_output": [
+      "インストール"
+    ]
+  },
+  {
+    "index": "insuto-ru/duplicate",
+    "raw": "insutto-ru",
+    "expected_output": [
+      "インストール"
+    ]
+  },
+  {
+    "index": "insuto-ru/swap",
+    "raw": "insuot-ru",
+    "expected_output": [
+      "インストール"
+    ]
+  },
+  {
+    "index": "insuto-ru/neighbor",
+    "raw": "insuyo-ru",
+    "expected_output": [
+      "インストール"
+    ]
+  },
+  {
+    "index": "an'insuto-ru/valid",
+    "raw": "an'insuto-ru",
+    "expected_output": [
+      "アンインストール"
+    ]
+  },
+  {
+    "index": "an'insuto-ru/omission",
+    "raw": "an'insto-ru",
+    "expected_output": [
+      "アンインストール"
+    ]
+  },
+  {
+    "index": "an'insuto-ru/duplicate",
+    "raw": "an'insuuto-ru",
+    "expected_output": [
+      "アンインストール"
+    ]
+  },
+  {
+    "index": "an'insuto-ru/swap",
+    "raw": "an'instuo-ru",
+    "expected_output": [
+      "アンインストール"
+    ]
+  },
+  {
+    "index": "an'insuto-ru/neighbor",
+    "raw": "an'insito-ru",
+    "expected_output": [
+      "アンインストール"
+    ]
+  },
+  {
+    "index": "konpyu-ta-/valid",
+    "raw": "konpyu-ta-",
+    "expected_output": [
+      "コンピューター"
+    ]
+  },
+  {
+    "index": "konpyu-ta-/omission",
+    "raw": "konpu-ta-",
+    "expected_output": [
+      "コンピューター"
+    ]
+  },
+  {
+    "index": "konpyu-ta-/duplicate",
+    "raw": "konpyyu-ta-",
+    "expected_output": [
+      "コンピューター"
+    ]
+  },
+  {
+    "index": "konpyu-ta-/swap",
+    "raw": "konpuy-ta-",
+    "expected_output": [
+      "コンピューター"
+    ]
+  },
+  {
+    "index": "konpyu-ta-/neighbor",
+    "raw": "konpuu-ta-",
+    "expected_output": [
+      "コンピューター"
+    ]
+  },
+  {
+    "index": "inta-netto/valid",
+    "raw": "inta-netto",
+    "expected_output": [
+      "インターネット"
+    ]
+  },
+  {
+    "index": "inta-netto/omission",
+    "raw": "inta-etto",
+    "expected_output": [
+      "インターネット"
+    ]
+  },
+  {
+    "index": "inta-netto/duplicate",
+    "raw": "inta-nnetto",
+    "expected_output": [
+      "インターネット"
+    ]
+  },
+  {
+    "index": "inta-netto/swap",
+    "raw": "inta-entto",
+    "expected_output": [
+      "インターネット"
+    ]
+  },
+  {
+    "index": "inta-netto/neighbor",
+    "raw": "inta-metto",
+    "expected_output": [
+      "インターネット"
+    ]
+  },
+  {
+    "index": "apurike-syon/valid",
+    "raw": "apurike-syon",
+    "expected_output": [
+      "アプリケーション"
+    ]
+  },
+  {
+    "index": "apurike-syon/omission",
+    "raw": "apurie-syon",
+    "expected_output": [
+      "アプリケーション"
+    ]
+  },
+  {
+    "index": "apurike-syon/duplicate",
+    "raw": "apurikke-syon",
+    "expected_output": [
+      "アプリケーション"
+    ]
+  },
+  {
+    "index": "apurike-syon/swap",
+    "raw": "apuriek-syon",
+    "expected_output": [
+      "アプリケーション"
+    ]
+  },
+  {
+    "index": "apurike-syon/neighbor",
+    "raw": "apurile-syon",
+    "expected_output": [
+      "アプリケーション"
+    ]
+  },
+  {
+    "index": "sofutowea/valid",
+    "raw": "sofutowea",
+    "expected_output": [
+      "ソフトウェア"
+    ]
+  },
+  {
+    "index": "sofutowea/omission",
+    "raw": "sofuowea",
+    "expected_output": [
+      "ソフトウェア"
+    ]
+  },
+  {
+    "index": "sofutowea/duplicate",
+    "raw": "sofuttowea",
+    "expected_output": [
+      "ソフトウェア"
+    ]
+  },
+  {
+    "index": "sofutowea/swap",
+    "raw": "sofuotwea",
+    "expected_output": [
+      "ソフトウェア"
+    ]
+  },
+  {
+    "index": "sofutowea/neighbor",
+    "raw": "sofuyowea",
+    "expected_output": [
+      "ソフトウェア"
+    ]
+  },
+  {
+    "index": "ha-dowea/valid",
+    "raw": "ha-dowea",
+    "expected_output": [
+      "ハードウェア"
+    ]
+  },
+  {
+    "index": "ha-dowea/omission",
+    "raw": "ha-dwea",
+    "expected_output": [
+      "ハードウェア"
+    ]
+  },
+  {
+    "index": "ha-dowea/duplicate",
+    "raw": "ha-doowea",
+    "expected_output": [
+      "ハードウェア"
+    ]
+  },
+  {
+    "index": "ha-dowea/swap",
+    "raw": "ha-dwoea",
+    "expected_output": [
+      "ハードウェア"
+    ]
+  },
+  {
+    "index": "ha-dowea/neighbor",
+    "raw": "ha-dpwea",
+    "expected_output": [
+      "ハードウェア"
+    ]
+  },
+  {
+    "index": "ki-bo-do/valid",
+    "raw": "ki-bo-do",
+    "expected_output": [
+      "キーボード"
+    ]
+  },
+  {
+    "index": "ki-bo-do/omission",
+    "raw": "ki-o-do",
+    "expected_output": [
+      "キーボード"
+    ]
+  },
+  {
+    "index": "ki-bo-do/duplicate",
+    "raw": "ki-bbo-do",
+    "expected_output": [
+      "キーボード"
+    ]
+  },
+  {
+    "index": "ki-bo-do/swap",
+    "raw": "ki-ob-do",
+    "expected_output": [
+      "キーボード"
+    ]
+  },
+  {
+    "index": "ki-bo-do/neighbor",
+    "raw": "ki-no-do",
+    "expected_output": [
+      "キーボード"
+    ]
+  },
+  {
+    "index": "burauza-/valid",
+    "raw": "burauza-",
+    "expected_output": [
+      "ブラウザー"
+    ]
+  },
+  {
+    "index": "burauza-/omission",
+    "raw": "buraza-",
+    "expected_output": [
+      "ブラウザー"
+    ]
+  },
+  {
+    "index": "burauza-/duplicate",
+    "raw": "burauuza-",
+    "expected_output": [
+      "ブラウザー"
+    ]
+  },
+  {
+    "index": "burauza-/swap",
+    "raw": "burazua-",
+    "expected_output": [
+      "ブラウザー"
+    ]
+  },
+  {
+    "index": "burauza-/neighbor",
+    "raw": "buraiza-",
+    "expected_output": [
+      "ブラウザー"
+    ]
+  },
+  {
+    "index": "fairu/valid",
+    "raw": "fairu",
+    "expected_output": [
+      "ファイル"
+    ]
+  },
+  {
+    "index": "fairu/omission",
+    "raw": "faru",
+    "expected_output": [
+      "ファイル"
+    ]
+  },
+  {
+    "index": "fairu/duplicate",
+    "raw": "faiiru",
+    "expected_output": [
+      "ファイル"
+    ]
+  },
+  {
+    "index": "fairu/swap",
+    "raw": "fariu",
+    "expected_output": [
+      "ファイル"
+    ]
+  },
+  {
+    "index": "fairu/neighbor",
+    "raw": "faoru",
+    "expected_output": [
+      "ファイル"
+    ]
+  },
+  {
+    "index": "pasuwa-do/valid",
+    "raw": "pasuwa-do",
+    "expected_output": [
+      "パスワード"
+    ]
+  },
+  {
+    "index": "pasuwa-do/omission",
+    "raw": "pasua-do",
+    "expected_output": [
+      "パスワード"
+    ]
+  },
+  {
+    "index": "pasuwa-do/duplicate",
+    "raw": "pasuwwa-do",
+    "expected_output": [
+      "パスワード"
+    ]
+  },
+  {
+    "index": "pasuwa-do/swap",
+    "raw": "pasuaw-do",
+    "expected_output": [
+      "パスワード"
+    ]
+  },
+  {
+    "index": "pasuwa-do/neighbor",
+    "raw": "pasuea-do",
+    "expected_output": [
+      "パスワード"
+    ]
+  },
+  {
+    "index": "akaunto/valid",
+    "raw": "akaunto",
+    "expected_output": [
+      "アカウント"
+    ]
+  },
+  {
+    "index": "akaunto/omission",
+    "raw": "akanto",
+    "expected_output": [
+      "アカウント"
+    ]
+  },
+  {
+    "index": "akaunto/duplicate",
+    "raw": "akauunto",
+    "expected_output": [
+      "アカウント"
+    ]
+  },
+  {
+    "index": "akaunto/swap",
+    "raw": "akanuto",
+    "expected_output": [
+      "アカウント"
+    ]
+  },
+  {
+    "index": "akaunto/neighbor",
+    "raw": "akainto",
+    "expected_output": [
+      "アカウント"
+    ]
+  },
+  {
+    "index": "roguin/valid",
+    "raw": "roguin",
+    "expected_output": [
+      "ログイン"
+    ]
+  },
+  {
+    "index": "roguin/omission",
+    "raw": "rogin",
+    "expected_output": [
+      "ログイン"
+    ]
+  },
+  {
+    "index": "roguin/duplicate",
+    "raw": "roguuin",
+    "expected_output": [
+      "ログイン"
+    ]
+  },
+  {
+    "index": "roguin/swap",
+    "raw": "rogiun",
+    "expected_output": [
+      "ログイン"
+    ]
+  },
+  {
+    "index": "roguin/neighbor",
+    "raw": "rogiin",
+    "expected_output": [
+      "ログイン"
+    ]
+  },
+  {
+    "index": "roguauto/valid",
+    "raw": "roguauto",
+    "expected_output": [
+      "ログアウト"
+    ]
+  },
+  {
+    "index": "roguauto/omission",
+    "raw": "roguuto",
+    "expected_output": [
+      "ログアウト"
+    ]
+  },
+  {
+    "index": "roguauto/duplicate",
+    "raw": "roguaauto",
+    "expected_output": [
+      "ログアウト"
+    ]
+  },
+  {
+    "index": "roguauto/swap",
+    "raw": "roguuato",
+    "expected_output": [
+      "ログアウト"
+    ]
+  },
+  {
+    "index": "roguauto/neighbor",
+    "raw": "rogusuto",
+    "expected_output": [
+      "ログアウト"
+    ]
+  },
+  {
+    "index": "de-tabe-su/valid",
+    "raw": "de-tabe-su",
+    "expected_output": [
+      "データベース"
+    ]
+  },
+  {
+    "index": "de-tabe-su/omission",
+    "raw": "de-tae-su",
+    "expected_output": [
+      "データベース"
+    ]
+  },
+  {
+    "index": "de-tabe-su/duplicate",
+    "raw": "de-tabbe-su",
+    "expected_output": [
+      "データベース"
+    ]
+  },
+  {
+    "index": "de-tabe-su/swap",
+    "raw": "de-taeb-su",
+    "expected_output": [
+      "データベース"
+    ]
+  },
+  {
+    "index": "de-tabe-su/neighbor",
+    "raw": "de-tane-su",
+    "expected_output": [
+      "データベース"
+    ]
+  },
+  {
+    "index": "puroguramingu/valid",
+    "raw": "puroguramingu",
+    "expected_output": [
+      "プログラミング"
+    ]
+  },
+  {
+    "index": "puroguramingu/omission",
+    "raw": "puroguamingu",
+    "expected_output": [
+      "プログラミング"
+    ]
+  },
+  {
+    "index": "puroguramingu/duplicate",
+    "raw": "purogurramingu",
+    "expected_output": [
+      "プログラミング"
+    ]
+  },
+  {
+    "index": "puroguramingu/swap",
+    "raw": "puroguarmingu",
+    "expected_output": [
+      "プログラミング"
+    ]
+  },
+  {
+    "index": "puroguramingu/neighbor",
+    "raw": "purogutamingu",
+    "expected_output": [
+      "プログラミング"
+    ]
+  },
+  {
+    "index": "arugorizumu/valid",
+    "raw": "arugorizumu",
+    "expected_output": [
+      "アルゴリズム"
+    ]
+  },
+  {
+    "index": "arugorizumu/omission",
+    "raw": "arugoizumu",
+    "expected_output": [
+      "アルゴリズム"
+    ]
+  },
+  {
+    "index": "arugorizumu/duplicate",
+    "raw": "arugorrizumu",
+    "expected_output": [
+      "アルゴリズム"
+    ]
+  },
+  {
+    "index": "arugorizumu/swap",
+    "raw": "arugoirzumu",
+    "expected_output": [
+      "アルゴリズム"
+    ]
+  },
+  {
+    "index": "arugorizumu/neighbor",
+    "raw": "arugotizumu",
+    "expected_output": [
+      "アルゴリズム"
+    ]
+  },
+  {
+    "index": "sekyurithi/valid",
+    "raw": "sekyurithi",
+    "expected_output": [
+      "セキュリティ"
+    ]
+  },
+  {
+    "index": "sekyurithi/omission",
+    "raw": "sekyuithi",
+    "expected_output": [
+      "セキュリティ"
+    ]
+  },
+  {
+    "index": "sekyurithi/duplicate",
+    "raw": "sekyurrithi",
+    "expected_output": [
+      "セキュリティ"
+    ]
+  },
+  {
+    "index": "sekyurithi/swap",
+    "raw": "sekyuirthi",
+    "expected_output": [
+      "セキュリティ"
+    ]
+  },
+  {
+    "index": "sekyurithi/neighbor",
+    "raw": "sekyutithi",
+    "expected_output": [
+      "セキュリティ"
+    ]
+  },
+  {
+    "index": "puraibasi-/valid",
+    "raw": "puraibasi-",
+    "expected_output": [
+      "プライバシー"
+    ]
+  },
+  {
+    "index": "puraibasi-/omission",
+    "raw": "puraiasi-",
+    "expected_output": [
+      "プライバシー"
+    ]
+  },
+  {
+    "index": "puraibasi-/duplicate",
+    "raw": "puraibbasi-",
+    "expected_output": [
+      "プライバシー"
+    ]
+  },
+  {
+    "index": "puraibasi-/swap",
+    "raw": "puraiabsi-",
+    "expected_output": [
+      "プライバシー"
+    ]
+  },
+  {
+    "index": "puraibasi-/neighbor",
+    "raw": "purainasi-",
+    "expected_output": [
+      "プライバシー"
+    ]
+  },
+  {
+    "index": "ba-jonn/valid",
+    "raw": "ba-jonn",
+    "expected_output": [
+      "バージョン"
+    ]
+  },
+  {
+    "index": "ba-jonn/omission",
+    "raw": "ba-onn",
+    "expected_output": [
+      "バージョン"
+    ]
+  },
+  {
+    "index": "ba-jonn/duplicate",
+    "raw": "ba-jjonn",
+    "expected_output": [
+      "バージョン"
+    ]
+  },
+  {
+    "index": "ba-jonn/swap",
+    "raw": "ba-ojnn",
+    "expected_output": [
+      "バージョン"
+    ]
+  },
+  {
+    "index": "ba-jonn/neighbor",
+    "raw": "ba-konn",
+    "expected_output": [
+      "バージョン"
+    ]
+  },
+  {
+    "index": "appude-to/valid",
+    "raw": "appude-to",
+    "expected_output": [
+      "アップデート"
+    ]
+  },
+  {
+    "index": "appude-to/omission",
+    "raw": "appue-to",
+    "expected_output": [
+      "アップデート"
+    ]
+  },
+  {
+    "index": "appude-to/duplicate",
+    "raw": "appudde-to",
+    "expected_output": [
+      "アップデート"
+    ]
+  },
+  {
+    "index": "appude-to/swap",
+    "raw": "appued-to",
+    "expected_output": [
+      "アップデート"
+    ]
+  },
+  {
+    "index": "appude-to/neighbor",
+    "raw": "appufe-to",
+    "expected_output": [
+      "アップデート"
+    ]
+  },
+  {
+    "index": "daunro-do/valid",
+    "raw": "daunro-do",
+    "expected_output": [
+      "ダウンロード"
+    ]
+  },
+  {
+    "index": "daunro-do/omission",
+    "raw": "dauno-do",
+    "expected_output": [
+      "ダウンロード"
+    ]
+  },
+  {
+    "index": "daunro-do/duplicate",
+    "raw": "daunrro-do",
+    "expected_output": [
+      "ダウンロード"
+    ]
+  },
+  {
+    "index": "daunro-do/swap",
+    "raw": "daunor-do",
+    "expected_output": [
+      "ダウンロード"
+    ]
+  },
+  {
+    "index": "daunro-do/neighbor",
+    "raw": "daunto-do",
+    "expected_output": [
+      "ダウンロード"
+    ]
+  },
+  {
+    "index": "appuro-do/valid",
+    "raw": "appuro-do",
+    "expected_output": [
+      "アップロード"
+    ]
+  },
+  {
+    "index": "appuro-do/omission",
+    "raw": "appuo-do",
+    "expected_output": [
+      "アップロード"
+    ]
+  },
+  {
+    "index": "appuro-do/duplicate",
+    "raw": "appurro-do",
+    "expected_output": [
+      "アップロード"
+    ]
+  },
+  {
+    "index": "appuro-do/swap",
+    "raw": "appuor-do",
+    "expected_output": [
+      "アップロード"
+    ]
+  },
+  {
+    "index": "appuro-do/neighbor",
+    "raw": "apputo-do",
+    "expected_output": [
+      "アップロード"
+    ]
+  },
+  {
+    "index": "bakkuaxtupu/valid",
+    "raw": "bakkuaxtupu",
+    "expected_output": [
+      "バックアップ"
+    ]
+  },
+  {
+    "index": "bakkuaxtupu/omission",
+    "raw": "bakkuxtupu",
+    "expected_output": [
+      "バックアップ"
+    ]
+  },
+  {
+    "index": "bakkuaxtupu/duplicate",
+    "raw": "bakkuaaxtupu",
+    "expected_output": [
+      "バックアップ"
+    ]
+  },
+  {
+    "index": "bakkuaxtupu/swap",
+    "raw": "bakkuxatupu",
+    "expected_output": [
+      "バックアップ"
+    ]
+  },
+  {
+    "index": "bakkuaxtupu/neighbor",
+    "raw": "bakkusxtupu",
+    "expected_output": [
+      "バックアップ"
+    ]
+  },
+  {
+    "index": "bakkusupe-su/valid",
+    "raw": "bakkusupe-su",
+    "expected_output": [
+      "バックスペース"
+    ]
+  },
+  {
+    "index": "bakkusupe-su/omission",
+    "raw": "bakkuspe-su",
+    "expected_output": [
+      "バックスペース"
+    ]
+  },
+  {
+    "index": "bakkusupe-su/duplicate",
+    "raw": "bakkusuupe-su",
+    "expected_output": [
+      "バックスペース"
+    ]
+  },
+  {
+    "index": "bakkusupe-su/swap",
+    "raw": "bakkuspue-su",
+    "expected_output": [
+      "バックスペース"
+    ]
+  },
+  {
+    "index": "bakkusupe-su/neighbor",
+    "raw": "bakkusipe-su",
+    "expected_output": [
+      "バックスペース"
+    ]
+  },
+  {
+    "index": "ko-hi-/valid",
+    "raw": "ko-hi-",
+    "expected_output": [
+      "コーヒー"
+    ]
+  },
+  {
+    "index": "ko-hi-/omission",
+    "raw": "ko-i-",
+    "expected_output": [
+      "コーヒー"
+    ]
+  },
+  {
+    "index": "ko-hi-/duplicate",
+    "raw": "ko-hhi-",
+    "expected_output": [
+      "コーヒー"
+    ]
+  },
+  {
+    "index": "ko-hi-/swap",
+    "raw": "ko-ih-",
+    "expected_output": [
+      "コーヒー"
+    ]
+  },
+  {
+    "index": "ko-hi-/neighbor",
+    "raw": "ko-ji-",
+    "expected_output": [
+      "コーヒー"
+    ]
+  },
+  {
+    "index": "resutoran/valid",
+    "raw": "resutoran",
+    "expected_output": [
+      "レストラン"
+    ]
+  },
+  {
+    "index": "resutoran/omission",
+    "raw": "resuoran",
+    "expected_output": [
+      "レストラン"
+    ]
+  },
+  {
+    "index": "resutoran/duplicate",
+    "raw": "resuttoran",
+    "expected_output": [
+      "レストラン"
+    ]
+  },
+  {
+    "index": "resutoran/swap",
+    "raw": "resuotran",
+    "expected_output": [
+      "レストラン"
+    ]
+  },
+  {
+    "index": "resutoran/neighbor",
+    "raw": "resuyoran",
+    "expected_output": [
+      "レストラン"
+    ]
+  },
+  {
+    "index": "chokore-to/valid",
+    "raw": "chokore-to",
+    "expected_output": [
+      "チョコレート"
+    ]
+  },
+  {
+    "index": "chokore-to/omission",
+    "raw": "chokoe-to",
+    "expected_output": [
+      "チョコレート"
+    ]
+  },
+  {
+    "index": "chokore-to/duplicate",
+    "raw": "chokorre-to",
+    "expected_output": [
+      "チョコレート"
+    ]
+  },
+  {
+    "index": "chokore-to/swap",
+    "raw": "chokoer-to",
+    "expected_output": [
+      "チョコレート"
+    ]
+  },
+  {
+    "index": "chokore-to/neighbor",
+    "raw": "chokote-to",
+    "expected_output": [
+      "チョコレート"
+    ]
+  },
+  {
+    "index": "akusesari-/valid",
+    "raw": "akusesari-",
+    "expected_output": [
+      "アクセサリー"
+    ]
+  },
+  {
+    "index": "akusesari-/omission",
+    "raw": "akuseari-",
+    "expected_output": [
+      "アクセサリー"
+    ]
+  },
+  {
+    "index": "akusesari-/duplicate",
+    "raw": "akusessari-",
+    "expected_output": [
+      "アクセサリー"
+    ]
+  },
+  {
+    "index": "akusesari-/swap",
+    "raw": "akuseasri-",
+    "expected_output": [
+      "アクセサリー"
+    ]
+  },
+  {
+    "index": "akusesari-/neighbor",
+    "raw": "akusedari-",
+    "expected_output": [
+      "アクセサリー"
+    ]
+  },
+  {
+    "index": "komyunike-syon/valid",
+    "raw": "komyunike-syon",
+    "expected_output": [
+      "コミュニケーション"
+    ]
+  },
+  {
+    "index": "komyunike-syon/omission",
+    "raw": "komyunie-syon",
+    "expected_output": [
+      "コミュニケーション"
+    ]
+  },
+  {
+    "index": "komyunike-syon/duplicate",
+    "raw": "komyunikke-syon",
+    "expected_output": [
+      "コミュニケーション"
+    ]
+  },
+  {
+    "index": "komyunike-syon/swap",
+    "raw": "komyuniek-syon",
+    "expected_output": [
+      "コミュニケーション"
+    ]
+  },
+  {
+    "index": "komyunike-syon/neighbor",
+    "raw": "komyunile-syon",
+    "expected_output": [
+      "コミュニケーション"
+    ]
+  },
+  {
+    "index": "dhisupurei/valid",
+    "raw": "dhisupurei",
+    "expected_output": [
+      "ディスプレイ"
+    ]
+  },
+  {
+    "index": "dhisupurei/omission",
+    "raw": "dhisuurei",
+    "expected_output": [
+      "ディスプレイ"
+    ]
+  },
+  {
+    "index": "dhisupurei/duplicate",
+    "raw": "dhisuppurei",
+    "expected_output": [
+      "ディスプレイ"
+    ]
+  },
+  {
+    "index": "dhisupurei/swap",
+    "raw": "dhisuuprei",
+    "expected_output": [
+      "ディスプレイ"
+    ]
+  },
+  {
+    "index": "dhisupurei/neighbor",
+    "raw": "dhisuourei",
+    "expected_output": [
+      "ディスプレイ"
+    ]
+  }
+]

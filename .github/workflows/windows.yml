@@ -101,6 +101,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'conversion quality regression' }
           python scripts/ci/context_quality.py native/build/Release/ime_engine_host.exe tests/context_conversion.json audit/context-quality.json --check
           if ($LASTEXITCODE -ne 0) { throw 'context conversion regression' }
+          python scripts/ci/context_quality.py native/build/Release/ime_engine_host.exe tests/generated_typo_conversion.json audit/generated-typo-quality.json --baseline native/tests/generated_typo_baseline.json
+          if ($LASTEXITCODE -ne 0) { throw 'generated typo regression' }
           python scripts/ci/typing_latency.py native/build/Release/ime_engine_host.exe audit/typing-latency.json
           if ($LASTEXITCODE -ne 0) { throw 'typing phase regression' }
           & scripts/capture_engine_demo.ps1
@@ -133,6 +135,7 @@ jobs:
             dist/yomitsugu-0.2.10-preview.zip.sha256
             audit/conversion-quality.json
             audit/context-quality.json
+            audit/generated-typo-quality.json
             audit/typing-latency.json
           retention-days: 7
           if-no-files-found: error
