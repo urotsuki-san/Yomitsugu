@@ -478,9 +478,10 @@ int main(int argc, char** argv) {
       const auto deadline = GetTickCount64() + 4000;
       while (GetTickCount64() < deadline && GetEditText() != item.second) Pump(30);
       SendVk(VK_RETURN);
+      WaitForCommit(item.second);
       auto text = GetEditText();
       std::printf("REPORTED %s => [%s]\n", item.first, Utf8(text.c_str()).c_str());
-      Expect(text == item.second, item.first);
+      Expect(text == item.second && !CandidateVisible(), item.first);
     }
     for (const auto& item : reported) {
       ClearBetween();
