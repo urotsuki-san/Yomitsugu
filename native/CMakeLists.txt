@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ime_mixed_native VERSION 0.2.9 LANGUAGES CXX RC)
+project(ime_mixed_native VERSION 0.2.10 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -100,9 +100,9 @@ target_sources(ime_settings PRIVATE src/version.rc)
 target_sources(ime_tray PRIVATE src/version.rc)
 
 # 使用中のDLLを上書きしないよう、TIPと入力試験を版別のフォルダーへ出力する。
-set(E2E_OUT ${CMAKE_BINARY_DIR}/e2e_out_v13)
+set(E2E_OUT ${CMAKE_BINARY_DIR}/e2e_out_v14)
 set_target_properties(ime_mixed_tip PROPERTIES
-  OUTPUT_NAME "ime_mixed_tip_v13"
+  OUTPUT_NAME "ime_mixed_tip_v14"
   RUNTIME_OUTPUT_DIRECTORY ${E2E_OUT}
   RUNTIME_OUTPUT_DIRECTORY_RELEASE ${E2E_OUT}
   RUNTIME_OUTPUT_DIRECTORY_DEBUG ${E2E_OUT}
@@ -116,6 +116,10 @@ target_link_libraries(e2e_tip_tests PRIVATE ole32 oleaut32 uuid user32)
 target_include_directories(e2e_tip_tests PRIVATE include)
 target_compile_definitions(e2e_tip_tests PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 add_executable(tip_com_smoke tests/tip_com_smoke.cpp)
+add_executable(tip_stability_test tests/tip_stability_test.cpp tests/dictionary_editor_stability.cpp src/tip/text_service.cpp src/tip/candidate_window.cpp src/tip/input_mode_menu.cpp)
+target_include_directories(tip_stability_test PRIVATE include src/tip)
+target_link_libraries(tip_stability_test PRIVATE ime_preview ime_dictionary ime_channel ole32 oleaut32 uuid advapi32 user32 gdi32 shell32 psapi comctl32)
+target_compile_definitions(tip_stability_test PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 target_link_libraries(tip_com_smoke PRIVATE ole32 uuid)
 target_include_directories(tip_com_smoke PRIVATE include)
 target_compile_definitions(tip_com_smoke PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
@@ -131,6 +135,7 @@ set_target_properties(e2e_tip_tests PROPERTIES
 )
 
 enable_testing()
+add_test(NAME tip_stability_test COMMAND tip_stability_test)
 add_test(NAME app_update_test COMMAND app_update_test)
 add_test(NAME engine_test COMMAND engine_test)
 add_test(NAME release_test COMMAND release_test)

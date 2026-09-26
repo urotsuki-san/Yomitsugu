@@ -6,7 +6,7 @@
 #include <string>
 
 namespace ime {
-inline constexpr char kReleaseTag[] = "v0.2.9-preview.1";
+inline constexpr char kReleaseTag[] = "v0.2.10-preview.1";
 struct AppRelease {
   std::string tag, name, url, sha256;
   std::uint64_t size = 0;

@@ -10,13 +10,14 @@ int wmain(int argc, wchar_t** argv) {
   cls.lpfnWndProc = EditorProc; cls.hInstance = GetModuleHandleW(nullptr);
   cls.lpszClassName = L"YomitsuguHiddenDictionaryRender";
   if (!RegisterClassW(&cls)) return 3;
-  auto state = new State;
+  auto owned_state = std::make_unique<State>();
+  auto state = owned_state.get();
   state->entries = {{L"よみつぐ", L"Yomitsugu", L"固有名詞"},
                     {L"かいはつめも", L"開発メモ", L"名詞"},
                     {L"れびゅー", L"コードレビュー", L"名詞"}};
   // 非表示の独立ウィンドウを使い、ユーザーの辞書と入力先には触れない。
   HWND hwnd = CreateWindowW(cls.lpszClassName,L"",WS_POPUP,0,0,708,581,
-                            nullptr,nullptr,cls.hInstance,state);
+                            nullptr,nullptr,cls.hInstance,&owned_state);
   if (!hwnd) return 4;
   RefreshList(state, 0);
   SetWindowTextW(state->reading,L"よみつぐ");

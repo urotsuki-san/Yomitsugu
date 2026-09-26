@@ -1,8 +1,8 @@
 ﻿# E2E runner: elevate once, register, run tests (capture output), always unregister
 $ErrorActionPreference = 'Continue'
 $root = Split-Path -Parent $PSScriptRoot
-$dll = Join-Path $root 'build\e2e_out_v13\ime_mixed_tip_v13.dll'
-$tests = Join-Path $root 'build\e2e_out_v13\e2e_tip_tests.exe'
+$dll = Join-Path $root 'build\e2e_out_v14\ime_mixed_tip_v14.dll'
+$tests = Join-Path $root 'build\e2e_out_v14\e2e_tip_tests.exe'
 $log = Join-Path $root 'scripts\e2e_result.txt'
 
 function Log([string]$m) {

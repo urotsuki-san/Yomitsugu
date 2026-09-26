@@ -1,7 +1,7 @@
 ﻿$ErrorActionPreference = 'Stop'
 $taskRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$taskPackage = Join-Path $taskRoot 'dist/yomitsugu-0.2.9-preview'
-$taskArchive = Join-Path $taskRoot 'dist/yomitsugu-0.2.9-preview.zip'
+$taskPackage = Join-Path $taskRoot 'dist/yomitsugu-0.2.10-preview'
+$taskArchive = Join-Path $taskRoot 'dist/yomitsugu-0.2.10-preview.zip'
 if (Test-Path -LiteralPath $taskArchive) { throw 'Archive already exists' }
 if ((Get-FileHash -LiteralPath (Join-Path $taskRoot 'RELEASE.md') -Algorithm SHA256).Hash -ne
     (Get-FileHash -LiteralPath (Join-Path $taskPackage 'README.md') -Algorithm SHA256).Hash) {

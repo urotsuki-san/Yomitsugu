@@ -42,13 +42,14 @@ class CandidateWindow {
   HWND hwnd() const { return hwnd_; }
 
  private:
+  friend struct TipStabilityTest;
   static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
+  HWND poll_window_ = nullptr;
   HWND hwnd_ = nullptr;
   HWND list_ = nullptr;
   HFONT font_ = nullptr;
   TextService* service_ = nullptr;
-  std::vector<ime::Candidate> items_;
-  int selected_ = 0;
+  UINT font_dpi_ = 0;
 };
 
 class TextService : public ITfTextInputProcessorEx,
@@ -102,12 +103,14 @@ class TextService : public ITfTextInputProcessorEx,
                     const ime::Session& next, const std::string& text, bool finish, bool cancel);
   void PollEngine();
   bool StartEngine();
-  void ResolveForCommit(ime::Session* next);
+  bool BeginPendingCommit();
+  void FinishEditCompleted(const ime::DecodeInput& expected);
   void ClickCandidate(int index);
   TfClientId client_id() const { return client_id_; }
   TfGuidAtom display_attr_atom() const { return display_attr_atom_; }
 
  private:
+  friend struct TipStabilityTest;
   HRESULT ActivateInternal(ITfThreadMgr* ptim, TfClientId tid);
   HRESULT InitThreadMgrSink();
   HRESULT UninitThreadMgrSink();
@@ -117,6 +120,8 @@ class TextService : public ITfTextInputProcessorEx,
                        bool finish = false, bool cancel = false, bool async = false);
   void SyncCandidateWindow(ITfContext* pic);
   void ReleaseCompositionRef();
+  void DetachComposition();
+  HRESULT FinishPendingCommit(bool async);
   void ResetSessionState();
   std::string Utf8FromW(LPWSTR ws, int len) const;
   std::wstring WFromUtf8(const std::string& s) const;
@@ -133,6 +138,7 @@ class TextService : public ITfTextInputProcessorEx,
   bool has_composition_ = false;
   bool activated_ = false;
   bool foreground_ = true;
+  bool document_focused_ = true;
   bool ending_ = false;
   bool restricted_ = false;
   POINT caret_point_{0, 0};
@@ -142,6 +148,9 @@ class TextService : public ITfTextInputProcessorEx,
   int submitted_interaction_ = -1;
   int submitted_context_ = -1;
   ULONGLONG retry_engine_at_ = 0;
+  bool pending_commit_ = false;
+  ULONGLONG commit_deadline_ = 0;
+  int commit_edit_revision_ = -1;
   ime::Session session_;
   CandidateWindow cand_window_;
   TfGuidAtom display_attr_atom_ = TF_INVALID_GUIDATOM;

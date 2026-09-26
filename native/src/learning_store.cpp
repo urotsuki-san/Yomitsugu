@@ -9,6 +9,11 @@ namespace ime {
 namespace {
 using nlohmann::json;
 constexpr size_t kMaximumEntries = 2048;
+bool ValidText(const std::string& text, size_t maximum) {
+  return !text.empty() && text.size() <= maximum && text.find('\0') == std::string::npos &&
+      text.find_first_of("\r\n\t") == std::string::npos &&
+      MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0) > 0;
+}
 class HistoryLock {
  public:
   HistoryLock() {
@@ -91,9 +96,12 @@ void LearningStore::Load(bool force) {
   if (!data.is_object() || !data.contains("version") || data["version"] != 1 || !data.contains("entries") || !data["entries"].is_array()) return;
   try {
     for (const auto& value : data["entries"]) {
+      if (!value.is_object() || !value.contains("count") || !value["count"].is_number_unsigned() ||
+          !value.contains("used") || !value["used"].is_number_unsigned() ||
+          value["count"].get<std::uint64_t>() > 100001) continue;
       Entry entry{value.at("key").get<std::string>(), value.at("text").get<std::string>(),
                   value.at("count").get<unsigned>(), value.at("used").get<std::uint64_t>()};
-      if (!entry.key.empty() && entry.key.size() <= 96 && !entry.text.empty() && entry.text.size() <= 256 && entry.count && entry.used < 0x7fffffffffffffffull)
+      if (ValidText(entry.key, 96) && ValidText(entry.text, 256) && entry.count && entry.used < 0x7fffffffffffffffull)
         entries_.push_back(std::move(entry));
       if (entries_.size() == kMaximumEntries) break;
     }
@@ -107,12 +115,13 @@ bool LearningStore::Save() {
 bool LearningStore::Clear() {
   HistoryLock lock; if (!lock) return false;
   entries_.clear();
-  return Save();
+  if (Save()) return true;
+  Load(true); return false;
 }
 size_t LearningStore::size() { Load(); return entries_.size(); }
 bool LearningStore::Record(const DecodeInput& input, const std::string& chosen) {
   const auto key = Key(input);
-  if (key.empty() || chosen.empty() || chosen.size() > 256 || chosen == input.raw_text || chosen.find_first_of("\r\n\t") != std::string::npos ||
+  if (key.empty() || !ValidText(chosen, 256) || chosen == input.raw_text ||
       std::none_of(chosen.begin(), chosen.end(), [](unsigned char ch) { return ch >= 128; })) return false;
   HistoryLock lock; if (!lock || !enabled()) return false;
   Load(true);
@@ -126,7 +135,8 @@ bool LearningStore::Record(const DecodeInput& input, const std::string& chosen) 
   found->used = next_used;
   std::stable_sort(entries_.begin(), entries_.end(), [](const Entry& a, const Entry& b) { return a.used > b.used; });
   if (entries_.size() > kMaximumEntries) entries_.resize(kMaximumEntries);
-  return Save();
+  if (Save()) return true;
+  Load(true); return false;
 }
 void LearningStore::Apply(const DecodeInput& input, std::vector<Candidate>* candidates) {
   const auto key = Key(input);

@@ -25,7 +25,7 @@ jobs:
           ARTIFACT_RUN: ${{ inputs.artifact_run }}
         run: |
           if ($env:ARTIFACT_RUN -notmatch '^[0-9]+$') { throw 'Invalid run ID' }
-          gh run download $env:ARTIFACT_RUN --name yomitsugu-0.2.9-preview-installer --dir audit/ci-installer
+          gh run download $env:ARTIFACT_RUN --name yomitsugu-0.2.10-preview-installer --dir audit/ci-installer
           if ($LASTEXITCODE -ne 0) { throw 'Artifact download failed' }
       - name: Build input and update test drivers
         shell: pwsh

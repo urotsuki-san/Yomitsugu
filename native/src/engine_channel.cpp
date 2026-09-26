@@ -57,7 +57,8 @@ bool EngineChannel::Start(const std::wstring& executable, const std::wstring& pr
     TerminateProcess(proc.hProcess, 1); Close(proc.hThread); Close(proc.hProcess); Stop(); return false;
   }
   process_ = proc.hProcess;
-  ResumeThread(proc.hThread); Close(proc.hThread);
+  const auto resumed = ResumeThread(proc.hThread); Close(proc.hThread);
+  if (resumed == static_cast<DWORD>(-1)) { Stop(); return false; }
   return true;
 }
 void EngineChannel::Submit(const DecodeInput& request) {
@@ -121,7 +122,11 @@ bool EngineChannel::Poll(DecodeInput* request, std::vector<Candidate>* candidate
     for (const auto& item : j) {
       Candidate c; c.output_text = item.at("text").get<std::string>();
       c.reading_text = item.at("reading").get<std::string>(); c.is_raw = item.value("raw", false);
-      if (c.output_text.size() > 65536) { Stop(); return false; }
+      if (c.output_text.empty() || c.output_text.size() > 65536 || c.reading_text.size() > 65536 ||
+          c.output_text.find('\0') != std::string::npos || c.reading_text.find('\0') != std::string::npos ||
+          !MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, c.output_text.data(), static_cast<int>(c.output_text.size()), nullptr, 0)) {
+        Stop(); return false;
+      }
       result.push_back(std::move(c));
     }
     *request = *active_; *candidates = std::move(result);

@@ -34,6 +34,26 @@ struct DiagnosticCounters {
   std::atomic<std::int32_t> langbar_add_result{0};
 };
 DiagnosticCounters g_diagnostics;
+// フォーカス通知中に同期編集できなくても、以前の入力先の未確定状態を終了する。
+class CompositionEndSession : public ITfEditSession {
+ public:
+  explicit CompositionEndSession(ITfComposition* composition) : composition_(composition) {
+    composition_->AddRef(); ModuleAddRef();
+  }
+  ~CompositionEndSession() { composition_->Release(); ModuleRelease(); }
+  STDMETHODIMP QueryInterface(REFIID id, void** out) override {
+    if (!out) return E_POINTER;
+    *out = nullptr;
+    if (id != IID_IUnknown && id != IID_ITfEditSession) return E_NOINTERFACE;
+    *out = static_cast<ITfEditSession*>(this); AddRef(); return S_OK;
+  }
+  STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&refs_); }
+  STDMETHODIMP_(ULONG) Release() override { auto r = InterlockedDecrement(&refs_); if (!r) delete this; return r; }
+  STDMETHODIMP DoEditSession(TfEditCookie ec) override { return composition_->EndComposition(ec); }
+ private:
+  LONG refs_ = 1;
+  ITfComposition* composition_;
+};
 class StateEditSession : public ITfEditSession {
  public:
   StateEditSession(TextService* svc, ITfContext* pic, ime::DecodeInput expected,
@@ -50,8 +70,11 @@ class StateEditSession : public ITfEditSession {
   STDMETHODIMP_(ULONG) AddRef() override { return InterlockedIncrement(&refs_); }
   STDMETHODIMP_(ULONG) Release() override { auto r = InterlockedDecrement(&refs_); if (!r) delete this; return r; }
   STDMETHODIMP DoEditSession(TfEditCookie ec) override {
-    try { return svc_->ApplyState(ec, pic_, expected_, next_, text_, finish_, cancel_); }
-    catch (...) { return E_FAIL; }
+    HRESULT result = E_FAIL;
+    try { result = svc_->ApplyState(ec, pic_, expected_, next_, text_, finish_, cancel_); }
+    catch (...) {}
+    if (finish_) svc_->FinishEditCompleted(expected_);
+    return result;
   }
  private:
   LONG refs_ = 1; TextService* svc_; ITfContext* pic_;
@@ -105,7 +128,7 @@ HRESULT TextService::EditStart(TfEditCookie ec, ITfContext* pic) {
   else hr = E_FAIL;
   if (selection.range) selection.range->Release();
   comp->Release(); has_composition_ = SUCCEEDED(hr) && composition_;
-  return hr;
+  return has_composition_ ? S_OK : (FAILED(hr) ? hr : E_FAIL);
 }
 
 HRESULT TextService::EditSetText(TfEditCookie ec, ITfContext* pic, const std::string& text,
@@ -132,6 +155,7 @@ HRESULT TextService::EditSetText(TfEditCookie ec, ITfContext* pic, const std::st
       TF_SELECTION s{}; s.range = selection; s.style.ase = TF_AE_NONE;
       pic->SetSelection(ec, 1, &s);
       ITfContextView* view = nullptr;
+      caret_valid_ = false;
       if (SUCCEEDED(pic->GetActiveView(&view)) && view) {
         RECT rect{}; BOOL clipped = FALSE; HWND owner = nullptr;
         if (SUCCEEDED(view->GetTextExt(ec, selection, &rect, &clipped))) {
@@ -168,7 +192,7 @@ HRESULT TextService::ApplyState(TfEditCookie ec, ITfContext* pic, const ime::Dec
   if (!activated_ || pic != context_ || now.revision != expected.revision ||
       now.context_generation != expected.context_generation ||
       now.interaction_generation != expected.interaction_generation) return S_FALSE;
-  if (!foreground_ && !finish && !cancel) return S_FALSE;
+  if ((!foreground_ || !document_focused_) && !finish && !cancel) return S_FALSE;
   TF_SELECTION selection{}; ULONG fetched = 0;
   std::string field = "prose";
   if (SUCCEEDED(pic->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &selection, &fetched)) && selection.range) {
@@ -208,6 +232,7 @@ HRESULT TextService::ApplyState(TfEditCookie ec, ITfContext* pic, const ime::Dec
     engine_channel_.Learn(learned, text);
   }
   session_ = next;
+  if (finish || cancel) pending_commit_ = false;
   if (!finish && !cancel && composition_) {
     if (session_.decode_input().field != field) session_.set_field(field);
     ITfRange* range = nullptr;
@@ -252,7 +277,20 @@ void TextService::ReleaseCompositionRef() {
   if (composition_) { composition_->Release(); composition_ = nullptr; }
   has_composition_ = false;
 }
-void TextService::ResetSessionState() { session_.Reset(); caret_valid_ = false; cand_window_.Hide(); }
+void TextService::DetachComposition() {
+  auto edit = composition_ ? new (std::nothrow) CompositionEndSession(composition_) : nullptr;
+  ReleaseCompositionRef();
+  if (!edit) return;
+  if (context_) {
+    HRESULT result = E_FAIL;
+    context_->RequestEditSession(client_id_, edit, TF_ES_READWRITE | TF_ES_ASYNCDONTCARE, &result);
+  }
+  edit->Release();
+}
+void TextService::ResetSessionState() {
+  session_.Reset(); caret_valid_ = false; cand_window_.Hide();
+  pending_commit_ = false; commit_edit_revision_ = -1;
+}
 
 bool TextService::StartEngine() {
   if (!engine_channel_.running() && GetTickCount64() >= retry_engine_at_) {
@@ -264,18 +302,31 @@ bool TextService::StartEngine() {
   }
   return engine_channel_.running();
 }
-void TextService::ResolveForCommit(ime::Session* next) {
-  if (next->candidates_ready() || !next->composing() || !StartEngine()) return;
-  engine_channel_.Submit(next->decode_input());
-  const auto deadline = GetTickCount64() + 3000;
-  while (engine_channel_.running() && GetTickCount64() < deadline && !next->candidates_ready()) {
-    ime::DecodeInput request; std::vector<ime::Candidate> candidates;
-    if (engine_channel_.Poll(&request, &candidates)) next->ApplyCandidates(request, std::move(candidates));
-    if (!next->candidates_ready()) Sleep(1);
-  }
+bool TextService::BeginPendingCommit() {
+  if (session_.candidates_ready() || !session_.composing() || !StartEngine()) return false;
+  pending_commit_ = true; commit_deadline_ = GetTickCount64() + 3000;
+  engine_channel_.Submit(session_.decode_input());
+  return true;
+}
+void TextService::FinishEditCompleted(const ime::DecodeInput& expected) {
+  if (commit_edit_revision_ == expected.revision) commit_edit_revision_ = -1;
+}
+HRESULT TextService::FinishPendingCommit(bool async) {
+  if (!pending_commit_ || !context_) return S_FALSE;
+  if (async && commit_edit_revision_ == session_.revision()) return TF_S_ASYNC;
+  auto next = session_; auto text = next.visible_text(); next.PressEnter();
+  commit_edit_revision_ = session_.revision();
+  auto hr = RequestState(context_, next, text, true, false, async);
+  if (hr != TF_S_ASYNC) commit_edit_revision_ = -1;
+  return hr;
 }
 void TextService::PollEngine() {
-  if (!activated_ || !foreground_ || restricted_ || !context_) return;
+  if (!activated_ || !foreground_ || !document_focused_ || restricted_ || !context_) return;
+  if (!CompartmentEnabled(thread_mgr_, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, true) ||
+      CompartmentEnabled(context_, GUID_COMPARTMENT_KEYBOARD_DISABLED, false) ||
+      CompartmentEnabled(context_, GUID_COMPARTMENT_EMPTYCONTEXT, false)) {
+    cand_window_.Hide(); return;
+  }
   if (!session_.composing()) {
     ime::DecodeInput ignored; std::vector<ime::Candidate> candidates;
     engine_channel_.Poll(&ignored, &candidates);
@@ -294,6 +345,8 @@ void TextService::PollEngine() {
     if (next.ApplyCandidates(request, std::move(result)))
       RequestState(context_, next, next.visible_text(), false, false, true);
   }
+  if (pending_commit_ && (session_.candidates_ready() || !engine_channel_.running() || GetTickCount64() >= commit_deadline_))
+    FinishPendingCommit(true);
 }
 void TextService::ClickCandidate(int index) {
   if (!context_ || !foreground_) return;
@@ -381,6 +434,7 @@ TextService::~TextService() {
 
 HRESULT TextService::Activate(ITfThreadMgr* ptim, TfClientId tid) {
   g_diagnostics.activate_flags.store(0);
+  restricted_ = false;
   return ActivateInternal(ptim, tid);
 }
 
@@ -395,6 +449,10 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* ptim, TfClientId tid) {
   TipLog("ActivateInternal enter tid=%ld already=%d", static_cast<long>(tid), activated_ ? 1 : 0);
   if (activated_) return S_OK;
   if (!ptim) return E_INVALIDARG;
+  foreground_ = true;
+  document_focused_ = true;
+  retry_engine_at_ = 0;
+  submitted_revision_ = submitted_interaction_ = submitted_context_ = -1;
   if (thread_mgr_) {
     thread_mgr_->Release();
     thread_mgr_ = nullptr;
@@ -424,7 +482,15 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* ptim, TfClientId tid) {
   }
   thread_key_sink_cookie_ = 1;  // keystroke sink keyed by client_id; mark advised
 
-  InitThreadMgrSink();
+  hr = InitThreadMgrSink();
+  if (FAILED(hr)) {
+    if (SUCCEEDED(thread_mgr_->QueryInterface(IID_ITfKeystrokeMgr, reinterpret_cast<void**>(&keys)))) {
+      keys->UnadviseKeyEventSink(client_id_); keys->Release();
+    }
+    thread_key_sink_cookie_ = TF_INVALID_COOKIE;
+    thread_mgr_->Release(); thread_mgr_ = nullptr; client_id_ = TF_CLIENTID_NULL;
+    return hr;
+  }
 
   ITfCategoryMgr* catmgr = nullptr;
   if (SUCCEEDED(CoCreateInstance(CLSID_TF_CategoryMgr, nullptr, CLSCTX_INPROC_SERVER,
@@ -436,8 +502,9 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* ptim, TfClientId tid) {
   }
 
   cand_window_.SetService(this);
-  cand_window_.Create(g_hInstance, nullptr);
-  if (cand_window_.hwnd()) SetTimer(cand_window_.hwnd(), 1, 25, nullptr);
+  if (!cand_window_.Create(g_hInstance, nullptr)) {
+    activated_ = true; Deactivate(); return E_FAIL;
+  }
   HRESULT langbar_hr = thread_mgr_->QueryInterface(IID_ITfLangBarItemMgr,
       reinterpret_cast<void**>(&lang_bar_mgr_));
   g_diagnostics.langbar_manager_result.store(langbar_hr);
@@ -463,18 +530,7 @@ HRESULT TextService::Deactivate() {
   if (!activated_) return S_OK;
   engine_channel_.FinishLearning(250);
   engine_channel_.Stop();
-  if (cand_window_.hwnd()) KillTimer(cand_window_.hwnd(), 1);
-  if (composition_) {
-    if (context_) {
-      EndComposition(context_, false);
-    }
-    if (composition_) {
-      // 編集セッションを実行できなかった場合も通知先の参照を解放する。
-      TipLog("Deactivate force-release composition");
-      ReleaseCompositionRef();
-    }
-    has_composition_ = false;
-  }
+  DetachComposition();
   if (thread_mgr_) {
     if (lang_bar_mgr_ && input_mode_menu_) lang_bar_mgr_->RemoveItem(input_mode_menu_);
     if (input_mode_menu_) { input_mode_menu_->Release(); input_mode_menu_ = nullptr; }
@@ -593,14 +649,17 @@ HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, BOOL* eaten, bool te
       CompartmentEnabled(pic, GUID_COMPARTMENT_KEYBOARD_DISABLED, false) ||
       CompartmentEnabled(pic, GUID_COMPARTMENT_EMPTYCONTEXT, false)) {
     g_diagnostics.gated_compartment.fetch_add(1);
+    if (!test) cand_window_.Hide();
     return S_OK;
   }
   TF_STATUS status{};
   if (SUCCEEDED(pic->GetStatus(&status)) && (status.dwDynamicFlags & TS_SD_READONLY)) {
     g_diagnostics.gated_readonly.fetch_add(1);
+    if (!test) cand_window_.Hide();
     return S_OK;
   }
-  bool composing = session_.composing(), converting = session_.is_converting();
+  bool composing = context_ == pic && session_.composing();
+  bool converting = composing && session_.is_converting();
   bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
   bool operation = key == VK_BACK || key == VK_DELETE || key == VK_ESCAPE || key == VK_RETURN ||
       key == VK_SPACE || key == VK_LEFT || key == VK_RIGHT || key == VK_HOME || key == VK_END ||
@@ -623,10 +682,18 @@ HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, BOOL* eaten, bool te
   }
   if ((operation && !composing) || (!operation && !candidate_key && append.empty())) return S_OK;
   if (test) { *eaten = TRUE; g_diagnostics.test_eaten.fetch_add(1); return S_OK; }
+  document_focused_ = true;
   if (context_ != pic) {
-    if (composition_) return S_OK;  // Never apply an old composition to another document.
+    DetachComposition();
     if (context_) context_->Release(); context_ = pic; context_->AddRef();
     ResetSessionState();
+    composing = false; converting = false;
+  }
+  if (pending_commit_) {
+    // 次のキーが来たら現在の表示を確定し、入力の順序を保つ。UIスレッドでは変換を待たない。
+    if (FinishPendingCommit(false) != S_OK) { *eaten = TRUE; return S_OK; }
+    composing = false; converting = false;
+    if (operation || candidate_key) return S_OK;
   }
   auto next = session_; bool finish = false, cancel = false;
   if (!append.empty()) {
@@ -641,7 +708,10 @@ HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, BOOL* eaten, bool te
   else if (key == VK_BACK) next.Backspace();
   else if (key == VK_DELETE) next.DeleteForward();
   else if (key == VK_ESCAPE) next.PressEscape();
-  else if (key == VK_RETURN) { ResolveForCommit(&next); finish = true; }
+  else if (key == VK_RETURN) {
+    if (BeginPendingCommit()) { *eaten = TRUE; return S_OK; }
+    finish = true;
+  }
   else if (key == VK_SPACE || key == VK_CONVERT) { if (shift) next.PressShiftSpace(); else next.PressSpace(); }
   else if (key == VK_LEFT) next.PressLeft();
   else if (key == VK_RIGHT) next.PressRight();
@@ -662,24 +732,35 @@ HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, BOOL* eaten, bool te
 }
 
 void TextService::SyncCandidateWindow(ITfContext*) {
-  if (!foreground_ || !session_.composing() || !caret_valid_) { cand_window_.Hide(); return; }
+  if (!foreground_ || !document_focused_ || !session_.composing() || !caret_valid_) { cand_window_.Hide(); return; }
   cand_window_.Show(session_.candidates(), session_.selected_index(), caret_point_);
 }
 
 // TSFスレッドと未確定文字列。
 STDMETHODIMP TextService::OnInitDocumentMgr(ITfDocumentMgr*) { return S_OK; }
-STDMETHODIMP TextService::OnUninitDocumentMgr(ITfDocumentMgr*) { return S_OK; }
+STDMETHODIMP TextService::OnUninitDocumentMgr(ITfDocumentMgr* document) {
+  ITfDocumentMgr* current = nullptr;
+  if (context_ && SUCCEEDED(context_->GetDocumentMgr(&current)) && current) {
+    const bool removed = current == document; current->Release();
+    if (removed) {
+      DetachComposition(); ResetSessionState();
+      context_->Release(); context_ = nullptr; document_focused_ = false;
+    }
+  }
+  return S_OK;
+}
 STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr*) {
   try {
+    document_focused_ = false;
+    cand_window_.Hide();
     if (!pdimFocus) {
-      cand_window_.Hide();
       return S_OK;
     }
     ITfContext* ctx = nullptr;
     if (SUCCEEDED(pdimFocus->GetTop(&ctx)) && ctx) {
+      document_focused_ = true;
       if (context_ && context_ != ctx) {
-        if (composition_) EndComposition(context_, true);
-        ReleaseCompositionRef(); ResetSessionState();
+        DetachComposition(); ResetSessionState();
         context_->Release();
         context_ = nullptr;
       }
@@ -694,11 +775,16 @@ STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr*)
     return E_FAIL;
   }
 }
-STDMETHODIMP TextService::OnPushContext(ITfContext*) { return S_OK; }
+STDMETHODIMP TextService::OnPushContext(ITfContext*) {
+  ITfDocumentMgr* document = nullptr;
+  if (thread_mgr_ && SUCCEEDED(thread_mgr_->GetFocus(&document)) && document) {
+    auto hr = OnSetFocus(document, nullptr); document->Release(); return hr;
+  }
+  return S_OK;
+}
 STDMETHODIMP TextService::OnPopContext(ITfContext* pic) {
   if (context_ == pic) {
-    if (composition_) EndComposition(pic, true);
-    ReleaseCompositionRef(); ResetSessionState();
+    DetachComposition(); ResetSessionState();
     context_->Release();
     context_ = nullptr;
   }
@@ -709,17 +795,13 @@ STDMETHODIMP TextService::OnCompositionTerminated(TfEditCookie, ITfComposition* 
   if (ending_) return S_OK;
   TipLog("OnCompositionTerminated comp=%p ours=%p", static_cast<void*>(pComp),
          static_cast<void*>(composition_));
-  if (composition_ && pComp && composition_ != pComp) {
+  if (pComp != composition_) {
     // 他のIMEの未確定文字列なら、このセッションは変更しない。
     return S_OK;
   }
   ReleaseCompositionRef();
   has_composition_ = false;
-  if (session_.composing()) {
-    session_.Reset();
-    TipLog("OnCompositionTerminated session cancelled");
-  }
-  cand_window_.Hide();
+  ResetSessionState();
   return S_OK;
 }
 

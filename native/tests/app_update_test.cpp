@@ -30,7 +30,7 @@ int main(int argc,char** argv) {
     Check(!ime::NewerRelease("v0.2.8","v0.2.9-preview.1"),"no downgrade");
     Check(!ime::NewerRelease("garbage","v0.2.9"),"invalid version");
     Check(!ime::NewerRelease("v999999999999.0.0","v0.2.9"),"overflow version");
-    Check(!ime::NewerRelease("v0.2.9-preview.1",ime::kReleaseTag),"same version");
+    Check(!ime::NewerRelease(ime::kReleaseTag,ime::kReleaseTag),"same version");
     const auto fixture=Release();
     auto list=nlohmann::json::array({fixture});
     const auto release=ime::ParseAppReleases(list.dump(),"v0.2.8-preview.1");

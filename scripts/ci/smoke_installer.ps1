@@ -1,8 +1,8 @@
 ﻿$ErrorActionPreference = 'Stop'
 $taskRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
-$taskSetup = Join-Path $taskRoot 'dist/installer/Yomitsugu-0.2.9-preview-x64-setup.exe'
-$taskInstallDir = Join-Path $env:ProgramFiles 'Yomitsugu/0.2.9-preview'
-$taskDll = Join-Path $taskInstallDir 'ime_mixed_tip_v13.dll'
+$taskSetup = Join-Path $taskRoot 'dist/installer/Yomitsugu-0.2.10-preview-x64-setup.exe'
+$taskInstallDir = Join-Path $env:ProgramFiles 'Yomitsugu/0.2.10-preview'
+$taskDll = Join-Path $taskInstallDir 'ime_mixed_tip_v14.dll'
 $taskClsid = 'Registry::HKEY_CLASSES_ROOT\CLSID\{8F3A1C2E-4B5D-4E6F-8A9B-0C1D2E3F4A5B}\InProcServer32'
 $taskRunKey = 'HKLM:\Software\Microsoft\Windows\CurrentVersion\Run'
 $taskAudit = Join-Path $taskRoot 'audit/installer-smoke'

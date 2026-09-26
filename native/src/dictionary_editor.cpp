@@ -7,6 +7,7 @@
 #include <iterator>
 #include <string>
 #include <vector>
+#include <memory>
 
 namespace {
 constexpr int kList = 201, kReading = 202, kWord = 203, kPos = 204;
@@ -198,7 +199,7 @@ LRESULT CALLBACK EditorProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lpara
   auto state = reinterpret_cast<State*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
   if (message == WM_NCCREATE) {
     auto create = reinterpret_cast<CREATESTRUCTW*>(lparam);
-    state = static_cast<State*>(create->lpCreateParams);
+    state = static_cast<std::unique_ptr<State>*>(create->lpCreateParams)->release();
     state->hwnd = hwnd;
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(state));
     return DefWindowProcW(hwnd, message, wparam, lparam);
@@ -310,14 +311,14 @@ void ShowDictionaryEditor(HWND owner, const std::filesystem::path& user_director
   if (current_editor && IsWindow(current_editor)) { SetForegroundWindow(current_editor); return; }
   INITCOMMONCONTROLSEX controls{sizeof(controls), ICC_LISTVIEW_CLASSES};
   InitCommonControlsEx(&controls);
-  auto state = new State;
+  auto state = std::make_unique<State>();
   state->owner = owner;
   state->path = user_directory / L"user_dictionary.tsv";
   state->on_saved = on_saved;
-  if (!LoadEntries(state)) {
+  if (!LoadEntries(state.get())) {
     MessageBoxW(owner, L"既存の辞書を読み込めません。ファイルの形式を確認してください。内容は変更していません。",
                 L"Yomitsugu", MB_ICONERROR);
-    delete state; return;
+    return;
   }
   HINSTANCE instance = GetModuleHandleW(nullptr);
   WNDCLASSW cls{}; cls.lpfnWndProc = EditorProc; cls.hInstance = instance;
@@ -327,8 +328,8 @@ void ShowDictionaryEditor(HWND owner, const std::filesystem::path& user_director
   RegisterClassW(&cls);
   HWND editor = CreateWindowExW(0, cls.lpszClassName, L"Yomitsugu - ユーザー辞書",
                                 WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                                CW_USEDEFAULT, CW_USEDEFAULT, 720, 620, owner, nullptr, instance, state);
-  if (!editor) { delete state; return; }
+                                CW_USEDEFAULT, CW_USEDEFAULT, 720, 620, owner, nullptr, instance, &state);
+  if (!editor) return;
   current_editor = editor;
   EnableWindow(owner, FALSE);
   ShowWindow(editor, SW_SHOW); UpdateWindow(editor);

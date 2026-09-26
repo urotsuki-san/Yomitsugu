@@ -30,10 +30,12 @@ jobs:
         run: |
           cmake -S native -B native/build -A x64
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
-          cmake --build native/build --config Release --target learning_test app_update_test engine_test debug_dump ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
+          cmake --build native/build --config Release --target tip_stability_test learning_test app_update_test engine_test debug_dump ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
           & native/build/Release/learning_test.exe
           if ($LASTEXITCODE -ne 0) { throw 'Learning cache test failed' }
+          & native/build/Release/tip_stability_test.exe
+          if ($LASTEXITCODE -ne 0) { throw 'TIP stability test failed' }
       - name: Dictionary update history
         shell: pwsh
         run: scripts/ci/test_dictionary_update.ps1
@@ -83,7 +85,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
           cmake --build native/build --config Release --target app_update_test engine_test debug_dump quality_typo_long release_test ime_mixed_tip ime_engine_host ime_dictionary_tool ime_settings ime_tray ime_profile_control e2e_tip_tests tip_com_smoke
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
-          & scripts/stage_engine.ps1 -Destination native/build/e2e_out_v13/engine
+          & scripts/stage_engine.ps1 -Destination native/build/e2e_out_v14/engine
           & scripts/ci/stage_test_runtime.ps1
           & native/build/Release/app_update_test.exe
           if ($LASTEXITCODE -ne 0) { throw 'app_update_test failed' }
@@ -93,10 +95,12 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'quality_typo_long failed' }
           & native/build/Release/release_test.exe
           if ($LASTEXITCODE -ne 0) { throw 'release_test failed' }
+          python scripts/ci/engine_stability.py native/build/Release/ime_engine_host.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Engine stability failed' }
           python scripts/evaluate_conversion.py --output audit/conversion-quality.json --check
           if ($LASTEXITCODE -ne 0) { throw 'conversion quality regression' }
           & scripts/capture_engine_demo.ps1
-          & native/build/e2e_out_v13/tip_com_smoke.exe
+          & native/build/e2e_out_v14/tip_com_smoke.exe
           if ($LASTEXITCODE -ne 0) { throw 'TIP COM smoke failed' }
       - name: Create validated package
         shell: pwsh
@@ -119,10 +123,10 @@ jobs:
         run: scripts/ci/smoke_installer.ps1
       - uses: actions/upload-artifact@v4
         with:
-          name: yomitsugu-0.2.9-preview-installer
+          name: yomitsugu-0.2.10-preview-installer
           path: |
-            dist/installer/Yomitsugu-0.2.9-preview-x64-setup.exe
-            dist/yomitsugu-0.2.9-preview.zip.sha256
+            dist/installer/Yomitsugu-0.2.10-preview-x64-setup.exe
+            dist/yomitsugu-0.2.10-preview.zip.sha256
             audit/conversion-quality.json
           retention-days: 7
           if-no-files-found: error

@@ -4,6 +4,7 @@
 #include "ime_engine.h"
 #include "user_dictionary.h"
 #include "learning_store.h"
+#include "file_revision.h"
 #include "nlohmann/json.hpp"
 
 static bool Transfer(HANDLE pipe, void* data, DWORD size, bool write) {
@@ -26,14 +27,14 @@ int wmain(int argc, wchar_t** argv) {
   auto dictionary_path = ime::UserDictionaryPath();
   if (argc == 6) dictionary_path = std::filesystem::path(argv[5]) / L"user_dictionary.tsv";
   ime::LearningStore learning(dictionary_path.parent_path());
-  std::filesystem::file_time_type dictionary_time{};
+  std::optional<ime::FileRevision> dictionary_revision;
   ime::UserDictionary public_dictionary;
   auto public_override = dictionary_path.parent_path() / L"public_dictionary.tsv";
   wchar_t executable_path[MAX_PATH]{};
   if (!GetModuleFileNameW(nullptr, executable_path, MAX_PATH)) return 6;
   auto public_bundled = std::filesystem::path(executable_path).parent_path() / L"public_dictionary.tsv";
   std::filesystem::path public_loaded_path;
-  std::filesystem::file_time_type public_time{};
+  std::optional<ime::FileRevision> public_revision;
   ime::AzookeyEnsureReady();
   for (;;) {
     uint32_t size = 0;
@@ -55,25 +56,24 @@ int wmain(int argc, wchar_t** argv) {
         continue;
       }
       std::error_code ec;
-      auto stamp = std::filesystem::last_write_time(dictionary_path, ec);
-      if (!ec && stamp != dictionary_time) {
+      auto stamp = ime::ReadFileRevision(dictionary_path);
+      if (stamp && stamp != dictionary_revision) {
         std::string error;
         if (dictionary.Load(dictionary_path, &error)) {
           // 上流の動的辞書は線形検索のため、大量の登録語はC++側の索引で検索する。
           ime::AzookeySetUserDictionary(dictionary.size() <= 1000 ? dictionary.json() : "[]");
-          dictionary_time = stamp;
+          dictionary_revision = stamp;
         }
-      } else if (ec && dictionary.size() && !std::filesystem::exists(dictionary_path)) {
-        dictionary = ime::UserDictionary(); ime::AzookeySetUserDictionary("[]"); dictionary_time = {};
+      } else if (!stamp && dictionary.size() && !std::filesystem::exists(dictionary_path, ec) && !ec) {
+        dictionary = ime::UserDictionary(); ime::AzookeySetUserDictionary("[]"); dictionary_revision.reset();
       }
       auto public_path = ime::PublicDictionaryPath(public_bundled, public_override);
-      std::error_code public_error;
-      auto public_stamp = std::filesystem::last_write_time(public_path, public_error);
-      if (!public_error && (public_path != public_loaded_path || public_stamp != public_time)) {
+      auto public_stamp = ime::ReadFileRevision(public_path);
+      if (public_stamp && (public_path != public_loaded_path || public_stamp != public_revision)) {
         std::string error;
         if (public_dictionary.Load(public_path, &error, true)) {
           public_loaded_path = public_path;
-          public_time = public_stamp;
+          public_revision = public_stamp;
         } else if (public_loaded_path.empty() && public_path != public_bundled) {
           if (public_dictionary.Load(public_bundled, &error, true)) public_loaded_path = public_bundled;
         }

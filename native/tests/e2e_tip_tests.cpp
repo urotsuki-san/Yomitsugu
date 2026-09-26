@@ -46,7 +46,7 @@ static void Expect(bool cond, const char* name, const std::string& detail = "") 
 }
 
 static void PrintTipDiagnostics(const char* phase) {
-  HMODULE module = GetModuleHandleW(L"ime_mixed_tip_v13.dll");
+  HMODULE module = GetModuleHandleW(L"ime_mixed_tip_v14.dll");
   auto get = module ? reinterpret_cast<ImeTipGetDiagnosticsFn>(
                           GetProcAddress(module, "ImeTipGetDiagnostics")) : nullptr;
   TipDiagnostics d{};
@@ -245,7 +245,7 @@ static bool CreateUi() {
   if (!g_hMain) return false;
 
   // Rich EditでTSFを有効にする。SES_USECTFは既定でオフ。
-  HMODULE hre = LoadLibraryW(L"Msftedit.dll");
+  static HMODULE hre = LoadLibraryW(L"Msftedit.dll");
   if (!hre) return false;
   g_hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"RICHEDIT50W", L"",
                             WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL |
@@ -405,6 +405,37 @@ int main(int argc, char** argv) {
     tsf_thread_mgr->Release(); CoUninitialize(); return 2;
   }
   Pump(100);
+  if (argc == 2 && std::strcmp(argv[1], "--stability-inputs") == 0) {
+    ClearBetween(); RunKeys("a"); SendVk(VK_RETURN); RunKeys("i"); SendVk(VK_RETURN); Pump(1500);
+    Expect(GetEditText() == L"あい", "S00 typing after pending Enter preserves input order");
+    for (int i = 0; i < 12; ++i) {
+      ClearBetween(); RunKeys("nihongo");
+      auto deadline = GetTickCount64() + 4000;
+      while (GetTickCount64() < deadline && GetEditText() != L"日本語") Pump(30);
+      Expect(GetEditText() == L"日本語", "S01 conversion before closing input window");
+      // 未確定文字列と候補を残したまま入力先を閉じ、同じスレッドで作り直す。
+      DestroyWindow(g_hMain); Pump(100);
+      Expect(CreateUi(), "S02 recreate input window on same TSF thread");
+      if (!IsWindow(g_hEdit)) break;
+      RunKeys("sannkai");
+      deadline = GetTickCount64() + 4000;
+      while (GetTickCount64() < deadline && GetEditText() != L"散開") Pump(30);
+      SendVk(VK_RETURN);
+      Expect(GetEditText() == L"散開", "S03 engine delivers candidates after owner destruction");
+      bool visible = false;
+      EnumThreadWindows(GetCurrentThreadId(), [](HWND hwnd, LPARAM value) -> BOOL {
+        wchar_t name[80]{}; GetClassNameW(hwnd, name, 80);
+        if (wcscmp(name, L"ImeMixedCandidateWindow") == 0 && IsWindowVisible(hwnd))
+          *reinterpret_cast<bool*>(value) = true;
+        return TRUE;
+      }, reinterpret_cast<LPARAM>(&visible));
+      Expect(!visible, "S04 committed composition leaves no candidate popup");
+    }
+    PrintTipDiagnostics("stability_inputs");
+    DestroyWindow(g_hMain); tsf_thread_mgr->Deactivate(); tsf_thread_mgr->Release(); CoUninitialize();
+    std::printf("E2E done pass=%d fail=%d\n", g_pass, g_fail);
+    return g_fail ? 1 : 0;
+  }
   if (argc == 2 && std::strcmp(argv[1], "--learning-inputs") == 0) {
     ClearBetween(); RunKeys("sannkai"); Pump(1500);
     const auto original=GetEditText();
@@ -471,7 +502,7 @@ int main(int argc, char** argv) {
               GetForegroundWindow() == g_hMain ? 1 : 0,
               GetFocus() == g_hEdit ? 1 : 0,
               LOWORD(reinterpret_cast<ULONG_PTR>(GetKeyboardLayout(0))));
-  std::printf("E2E TIP module_loaded=%d\n", GetModuleHandleW(L"ime_mixed_tip_v13.dll") ? 1 : 0);
+  std::printf("E2E TIP module_loaded=%d\n", GetModuleHandleW(L"ime_mixed_tip_v14.dll") ? 1 : 0);
 
   // 入力インジケーターに、このTIPの「あ」メニューが登録されているか確認する。
   {

@@ -33,7 +33,7 @@ bool DigestValid(const std::string& hash) {
   return hash.size()==64 && hash.find_first_not_of("0123456789abcdef")==std::string::npos;
 }
 void Fetch(std::string url, std::uint64_t limit, const std::function<void(const char*,std::size_t)>& consume) {
-  InternetHandle session{WinHttpOpen(L"Yomitsugu-updater/0.2.9", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
+  InternetHandle session{WinHttpOpen(L"Yomitsugu-updater/0.2.10", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY,
       WINHTTP_NO_PROXY_NAME,WINHTTP_NO_PROXY_BYPASS,0)};
   if (!session.value) throw std::runtime_error("network initialization");
   WinHttpSetTimeouts(session,10000,10000,30000,30000);

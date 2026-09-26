@@ -149,7 +149,7 @@ void CheckAppUpdate() {
   std::thread([] {
     auto result=std::make_unique<UpdateResult>();
     try { result->release=ime::CheckAppUpdate(); } catch (...) { result->failed=true; }
-    PostMessageW(window,kAppUpdateDone,0,reinterpret_cast<LPARAM>(result.release()));
+    if (PostMessageW(window,kAppUpdateDone,0,reinterpret_cast<LPARAM>(result.get()))) result.release();
   }).detach();
 }
 void HandleAppUpdate(UpdateResult& result) {
@@ -177,12 +177,12 @@ void HandleAppUpdate(UpdateResult& result) {
   std::thread([release] {
     auto result=std::make_unique<UpdateResult>(); result->release=release; result->downloaded=true;
     try { result->installer=ime::DownloadAppUpdate(release,user_dir/L"updates"); } catch (...) { result->failed=true; }
-    PostMessageW(window,kAppUpdateDone,0,reinterpret_cast<LPARAM>(result.release()));
+    if (PostMessageW(window,kAppUpdateDone,0,reinterpret_cast<LPARAM>(result.get()))) result.release();
   }).detach();
 }
 void About() {
   MessageBoxW(window,
-    L"Yomitsugu 0.2.9-preview\r\nローマ字を打つそばから、日本語に変えるIMEです。\r\n\r\n変換はPC内で処理します。辞書はMozcとEDRDG、アプリの更新はGitHubから取得します。\r\n\r\n使い方はスタートメニューの「Yomitsugu → 使い方」、出典はインストール先の THIRD_PARTY.md を参照してください。",
+    L"Yomitsugu 0.2.10-preview\r\nローマ字を打つそばから、日本語に変えるIMEです。\r\n\r\n変換はPC内で処理します。辞書はMozcとEDRDG、アプリの更新はGitHubから取得します。\r\n\r\n使い方はスタートメニューの「Yomitsugu → 使い方」、出典はインストール先の THIRD_PARTY.md を参照してください。",
     L"Yomitsugu", MB_OK);
 }
 void DrawAction(const DRAWITEMSTRUCT* item) {
@@ -237,7 +237,7 @@ void DrawDashboard(HWND hwnd, HDC target) {
   RECT subtitle{108,78,610,110};
   Text(dc,body_font,RGB(201,220,238),L"ローマ字を続けて、日本語へ",subtitle,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   RECT version{594,35,690,66};
-  Text(dc,small_font,RGB(178,206,235),L"PREVIEW 0.2.9",version,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,small_font,RGB(178,206,235),L"PREVIEW 0.2.10",version,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
   RECT status_card{34,169,690,288};
   Panel(dc,status_card,RGB(255,255,255),RGB(222,230,240),18);
   RECT public_label{54,178,330,198}, public_value{54,198,330,229};

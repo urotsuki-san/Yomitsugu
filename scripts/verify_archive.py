@@ -1,6 +1,6 @@
 from pathlib import Path
 import zipfile, json, hashlib
-root=Path('dist/yomitsugu-0.2.9-preview')
+root=Path('dist/yomitsugu-0.2.10-preview')
 archive=Path(str(root)+'.zip')
 with zipfile.ZipFile(archive) as z:
     assert z.testzip() is None

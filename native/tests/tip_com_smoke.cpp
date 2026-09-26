@@ -13,7 +13,7 @@ using DllGetClassObjectFn = HRESULT(STDAPICALLTYPE*)(REFCLSID, REFIID, void**);
 int wmain() {
   wchar_t own_path[MAX_PATH]{};
   if (!GetModuleFileNameW(nullptr, own_path, MAX_PATH)) return 2;
-  const auto dll_path = std::filesystem::path(own_path).parent_path() / L"ime_mixed_tip_v13.dll";
+  const auto dll_path = std::filesystem::path(own_path).parent_path() / L"ime_mixed_tip_v14.dll";
   HMODULE module = LoadLibraryW(dll_path.c_str());
   if (!module) {
     std::printf("TIP COM smoke load=failed code=%lu\n", GetLastError());

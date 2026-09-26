@@ -22,24 +22,36 @@ bool CandidateWindow::Create(HINSTANCE instance, HWND parent) {
   wc.lpfnWndProc = WndProc; wc.hInstance = instance; wc.hCursor = LoadCursor(nullptr, IDC_ARROW);
   wc.hbrBackground = reinterpret_cast<HBRUSH>(COLOR_WINDOW + 1); wc.lpszClassName = kClass;
   if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+  // 入力先が閉じられても、変換結果の受信は止めない。
+  if (!poll_window_) {
+    poll_window_ = CreateWindowExW(0, kClass, L"", 0, 0, 0, 0, 0,
+                                  HWND_MESSAGE, nullptr, instance, this);
+    if (!poll_window_) return false;
+    if (!SetTimer(poll_window_, 1, 25, nullptr)) {
+      DestroyWindow(poll_window_); poll_window_ = nullptr; return false;
+    }
+  }
   hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClass, L"変換候補",
-                         WS_POPUP | WS_BORDER, 0, 0, 0, 0, parent, nullptr, instance, this);
+                         WS_POPUP | WS_BORDER | WS_CLIPCHILDREN, 0, 0, 0, 0, parent, nullptr, instance, this);
   if (!hwnd_) return false;
   // 標準リストを使い、候補の文字列と選択状態を支援技術へ伝える。
   list_ = CreateWindowExW(0, L"LISTBOX", L"変換候補", WS_CHILD | WS_VISIBLE | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
                           0, 0, 0, 0, hwnd_, reinterpret_cast<HMENU>(1), instance, nullptr);
-  return list_ != nullptr;
+  if (!list_) { DestroyWindow(hwnd_); return false; }
+  return true;
 }
 void CandidateWindow::SetOwner(HWND owner) {
+  if (!hwnd_) Create(g_hInstance, owner);
   if (hwnd_) SetWindowLongPtrW(hwnd_, GWLP_HWNDPARENT, reinterpret_cast<LONG_PTR>(owner));
 }
 void CandidateWindow::Destroy() {
   std::lock_guard<std::mutex> lock(class_mutex);
-  if (hwnd_) { auto h = hwnd_; hwnd_ = nullptr; DestroyWindow(h); }
+  if (poll_window_) { KillTimer(poll_window_, 1); DestroyWindow(poll_window_); poll_window_ = nullptr; }
+  if (hwnd_) DestroyWindow(hwnd_);
   UnregisterClassW(kClass, g_hInstance); // Succeeds after the final window is gone.
   list_ = nullptr;
   if (font_) { DeleteObject(font_); font_ = nullptr; }
-  items_.clear();
+  font_dpi_ = 0;
 }
 void CandidateWindow::Hide() {
   if (hwnd_ && IsWindowVisible(hwnd_)) {
@@ -48,19 +60,28 @@ void CandidateWindow::Hide() {
   }
 }
 void CandidateWindow::Show(const std::vector<ime::Candidate>& candidates, int selected, POINT pt) {
-  if (!hwnd_ || !list_ || candidates.empty()) { Hide(); return; }
-  items_ = candidates; selected_ = selected;
+  if (candidates.empty()) { Hide(); return; }
+  if (!hwnd_ && !Create(g_hInstance, nullptr)) return;
+  if (!list_) { Hide(); return; }
   UINT dpi = GetDpiForWindow(GetWindow(hwnd_, GW_OWNER)); if (!dpi) dpi = 96;
-  NONCLIENTMETRICSW metrics{sizeof(metrics)};
-  SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, dpi);
-  HFONT next = CreateFontIndirectW(&metrics.lfMessageFont);
-  if (next) { SendMessageW(list_, WM_SETFONT, reinterpret_cast<WPARAM>(next), FALSE); if (font_) DeleteObject(font_); font_ = next; }
+  if (!font_ || font_dpi_ != dpi) {
+    NONCLIENTMETRICSW metrics{sizeof(metrics)};
+    if (SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, sizeof(metrics), &metrics, 0, dpi)) {
+      HFONT next = CreateFontIndirectW(&metrics.lfMessageFont);
+      if (next) { SendMessageW(list_, WM_SETFONT, reinterpret_cast<WPARAM>(next), FALSE); if (font_) DeleteObject(font_); font_ = next; font_dpi_ = dpi; }
+    }
+  }
+  // 文字列の確保で例外が起きても、再描画を無効のまま残さない。
+  std::vector<std::wstring> labels;
+  for (size_t i = 0; i < candidates.size(); ++i) {
+    auto label = std::to_wstring(i + 1) + L"  " + Widen(candidates[i].output_text);
+    if (candidates[i].is_raw) label += L"  ［入力どおり］";
+    labels.push_back(std::move(label));
+  }
   SendMessageW(list_, WM_SETREDRAW, FALSE, 0);
   SendMessageW(list_, LB_RESETCONTENT, 0, 0);
   HDC dc = GetDC(list_); auto old = SelectObject(dc, font_); int width = MulDiv(280, dpi, 96);
-  for (size_t i = 0; i < candidates.size(); ++i) {
-    auto label = std::to_wstring(i+1) + L"  " + Widen(candidates[i].output_text);
-    if (candidates[i].is_raw) label += L"  ［入力どおり］";
+  for (const auto& label : labels) {
     SendMessageW(list_, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
     SIZE extent{}; GetTextExtentPoint32W(dc, label.c_str(), static_cast<int>(label.size()), &extent);
     width = (std::max)(width, static_cast<int>(extent.cx) + MulDiv(32, dpi, 96));
@@ -81,7 +102,8 @@ void CandidateWindow::Show(const std::vector<ime::Candidate>& candidates, int se
   bool visible = IsWindowVisible(hwnd_) != FALSE;
   MoveWindow(list_, 0, 0, width - 2, list_height, FALSE);
   SetWindowPos(hwnd_, HWND_TOP, x, y, width, height, SWP_SHOWWINDOW | SWP_NOACTIVATE);
-  SendMessageW(list_, WM_SETREDRAW, TRUE, 0); InvalidateRect(hwnd_, nullptr, TRUE); InvalidateRect(list_, nullptr, TRUE);
+  SendMessageW(list_, WM_SETREDRAW, TRUE, 0);
+  RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
   NotifyWinEvent(visible ? EVENT_OBJECT_IME_CHANGE : EVENT_OBJECT_IME_SHOW, hwnd_, OBJID_CLIENT, CHILDID_SELF);
 }
 LRESULT CALLBACK CandidateWindow::WndProc(HWND hwnd, UINT msg, WPARAM w, LPARAM l) {
@@ -92,7 +114,7 @@ LRESULT CALLBACK CandidateWindow::WndProc(HWND hwnd, UINT msg, WPARAM w, LPARAM 
   }
   if (self) {
     try {
-      if (msg == WM_TIMER && self->service_) { self->service_->PollEngine(); return 0; }
+      if (msg == WM_TIMER && hwnd == self->poll_window_ && self->service_) { self->service_->PollEngine(); return 0; }
       if (msg == WM_COMMAND && HIWORD(w) == LBN_SELCHANGE && self->service_) {
         auto index = static_cast<int>(SendMessageW(self->list_, LB_GETCURSEL, 0, 0));
         if (index >= 0) self->service_->ClickCandidate(index); return 0;
@@ -107,7 +129,15 @@ LRESULT CALLBACK CandidateWindow::WndProc(HWND hwnd, UINT msg, WPARAM w, LPARAM 
         SelectObject(dc, old); EndPaint(hwnd, &ps); return 0;
       }
       if (msg == WM_MOUSEACTIVATE) return MA_NOACTIVATE;
-      if (msg == WM_NCDESTROY) { SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0); self->hwnd_ = nullptr; }
+      if (msg == WM_NCDESTROY) {
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+        if (hwnd == self->hwnd_) {
+          self->hwnd_ = nullptr; self->list_ = nullptr;
+          if (self->font_) { DeleteObject(self->font_); self->font_ = nullptr; }
+          self->font_dpi_ = 0;
+        }
+        if (hwnd == self->poll_window_) self->poll_window_ = nullptr;
+      }
     } catch (...) { return 0; }
   }
   return DefWindowProcW(hwnd, msg, w, l);
