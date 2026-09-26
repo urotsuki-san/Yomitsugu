@@ -53,6 +53,14 @@ int wmain(int argc, wchar_t** argv) {
   auto DecodeWithPublic = [&](DecodeInput input) {
     auto list = Decode(input); public_dictionary.Apply(input, &list, true); return list;
   };
+  {
+    DecodeInput input;input.raw_text="de-taeb-su.";
+    Candidate literal;literal.output_text=u8"de-taeb-su。";
+    std::vector<Candidate> list{literal};public_dictionary.Apply(input,&list,true);
+    Check(list.front().output_text==literal.output_text,"Japanese punctuation alone does not trigger partial-romaji repair");
+    literal.output_text=u8"de-他ベース。";list={literal};public_dictionary.Apply(input,&list,true);
+    Check(list.front().output_text==u8"データベース。","unique whole-word repair replaces partly converted romaji");
+  }
   auto parsed = ParseAzookeyCandidates(R"([{"correspondingCount":2,"text":"A"},{"text":"\u3042","correspondingCount":9}])");
   Check(parsed.size()==2 && parsed[0].corresponding_count==2 && parsed[1].text==u8"あ", "JSON field order and Unicode escapes");
   Check(ParseAzookeyCandidates(R"([{"text":"x","correspondingCount":-1},{"text":"x","correspondingCount":18446744073709551615}])").empty(), "reject invalid coverage counts");

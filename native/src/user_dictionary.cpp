@@ -331,7 +331,13 @@ void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Cand
       (matches.size()==1 || matches[1].repair.cost>matches[0].repair.cost) && !candidates->empty()) {
     const auto& surface=candidates->front().output_text;
     const bool latin=std::any_of(surface.begin(),surface.end(),[](unsigned char c){return c>='a'&&c<='z';});
-    const bool japanese=std::any_of(surface.begin(),surface.end(),[](unsigned char c){return c>=128;});
+    const int length=MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,surface.data(),static_cast<int>(surface.size()),nullptr,0);
+    std::wstring wide(static_cast<size_t>(length),L'\0');
+    if(length) MultiByteToWideChar(CP_UTF8,MB_ERR_INVALID_CHARS,surface.data(),static_cast<int>(surface.size()),wide.data(),length);
+    const bool japanese=std::any_of(wide.begin(),wide.end(),[](wchar_t c){
+      return (c>=0x3041&&c<=0x3096)||(c>=0x30a1&&c<=0x30fa)||(c>=0x3400&&c<=0x9fff)||
+          (c>=0xff66&&c<=0xff6f)||(c>=0xff71&&c<=0xff9d);
+    });
     // 壊れたローマ字の一部だけを変換するより、一意に復元できる辞書語を優先する。
     if (latin && japanese) promote=true;
   }
