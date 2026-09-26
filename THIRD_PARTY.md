@@ -4,11 +4,11 @@ Yomitsuguの独自コードは[MIT](LICENSE)です。辞書・モデル・同梱
 
 | 構成要素 | 用途 | ライセンス・出典 | 表記の保存先 |
 |---|---|---|---|
-| [myime](https://github.com/unok/myime) at `a8486eca5312556ff88fed7f1850a28843b67977` | 変換エンジンの接続とWindowsビルド | MIT。依存物にはそれぞれのライセンスを適用 | ビルド元の `upstream/myime/LICENSE`。配布時は `licenses/myime-LICENSE` |
+| [myime](https://github.com/unok/myime)（`a8486eca5312556ff88fed7f1850a28843b67977`） | 変換エンジンの接続とWindowsビルド | MIT。依存物にはそれぞれのライセンスを適用 | ビルド元の `upstream/myime/LICENSE`。配布時は `licenses/myime-LICENSE` |
 | [AzooKeyKanaKanjiConverter](https://github.com/azooKey/AzooKeyKanaKanjiConverter) | かな漢字変換 | MIT | 上流の `LICENSE` を配布パッケージに同梱 |
 | [azooKey_dictionary_storage](https://github.com/azooKey/azooKey_dictionary_storage) | 本辞書 | Apache-2.0 | 配布時は `licenses/azookey-dictionary-LICENSE` |
 | [azooKey_emoji_dictionary_storage](https://github.com/azooKey/azooKey_emoji_dictionary_storage) | AzooKeyの絵文字辞書 | Mozc・Unicode emoji・CLDR由来。各出典の条件を適用 | 上流の `README.md` と `data/README.md`、MozcとUnicodeの表記を同梱 |
-| [Zenzai v3.2 small GGUF](https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf) at revision `c67e03e07d215c869f591b274c1631170d3e11fe` | ローカルモデル。SHA-256 `29c223d4c23327b80fd13ebb5ab2555057a46317997d5da391584ffbef0db673` | モデルのリポジトリ表記はApache-2.0 | モデルの出典とApache-2.0の本文を同梱 |
+| [Zenzai v3.2 small GGUF](https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf)（`c67e03e07d215c869f591b274c1631170d3e11fe`） | ローカルモデル。SHA-256 `29c223d4c23327b80fd13ebb5ab2555057a46317997d5da391584ffbef0db673` | モデルのリポジトリ表記はApache-2.0 | モデルの出典とApache-2.0の本文を同梱 |
 | [llama.cpp](https://github.com/ggml-org/llama.cpp) | myimeが使うモデル実行基盤 | MIT | 配布パッケージに同梱 |
 | [Swift runtime and Foundation](https://www.swift.org/) | 変換プロセス内のSwift・Foundation・Dispatch DLL | Apache-2.0とSwift Runtime Library Exception。Foundation内のUnicodeデータはUnicode License | `licenses/swift-LICENSE` と `licenses/unicode-LICENSE` |
 | Microsoft Visual C++ runtime | `vcruntime`, `msvcp`, `concrt` DLLs | 使用したVisual Studioの再配布条件 | Microsoftの[再配布可能ファイル一覧](https://learn.microsoft.com/en-us/cpp/windows/determining-which-dlls-to-redistribute?view=msvc-170) に従いRelease用DLLを同梱 |

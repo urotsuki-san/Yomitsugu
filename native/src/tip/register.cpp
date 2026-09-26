@@ -41,7 +41,7 @@ HRESULT RegisterTextService() {
   const std::wstring dll = ModulePath();
   if (dll.empty()) return E_FAIL;
 
-  // CLSID keys
+  // COMクラスの登録。
   std::wstring base = L"CLSID\\" + clsid;
   HRESULT hr = SetRegString(HKEY_CLASSES_ROOT, base, nullptr, L"Yomitsugu Preview");
   if (FAILED(hr)) return hr;

@@ -1,4 +1,4 @@
-"""Data-format acceptance checks, independent of the native candidate ranker."""
+"""辞書のデータ形式を検証する。候補順位はネイティブ側の試験で扱う。"""
 import importlib.util
 from pathlib import Path
 

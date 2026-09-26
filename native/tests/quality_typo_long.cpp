@@ -39,7 +39,7 @@ int main() {
   std::printf("azookey ready zenzai=%s\n", AzookeyZenzaiStatus().c_str());
 
   const Case cases[] = {
-      // --- typos ---
+      // タイプミス。
       {"T01", "gakou", {"\xe5\xad\xa6\xe6\xa0\xa1"}, false, "end_of_phrase", false},
       {"T02", "gakkou", {"\xe5\xad\xa6\xe6\xa0\xa1"}, true, "end_of_phrase", false},
       {"T03", "konitiha", {"\xe3\x81\x93\xe3\x82\x93\xe3\x81\xab\xe3\x81\xa1\xe3\x81\xaf", "\xe3\x81\x93\xe3\x82\x93\xe3\x81\xab\xe3\x81\xa1\xe3\x82\x8f"}, true, "end_of_phrase", false},
@@ -68,7 +68,7 @@ int main() {
       {"T31", "tokyo", {"\xe6\x9d\xb1\xe4\xba\xac", "\xe3\x81\xa8\xe3\x81\x86\xe3\x81\x8d\xe3\x82\x87\xe3\x81\x86"}, false, "end_of_phrase", false},
       {"T32", "nihongo", {"\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e"}, false, "end_of_phrase", false},
 
-      // --- long / mixed ---
+      // 長文と英日混在。
       {"L01", "kyouhaiitennkidesune.", {"\xe4\xbb\x8a\xe6\x97\xa5\xe3\x81\xaf\xe3\x81\x84\xe3\x81\x84\xe5\xa4\xa9\xe6\xb0\x97\xe3\x81\xa7\xe3\x81\x99\xe3\x81\xad\xe3\x80\x82"}, true, "sentence_end", true},
       {"L02", "kyouhaidesugokumoiidesune.", {"\xe4\xbb\x8a\xe6\x97\xa5\xe3\x81\xaf"}, false, "sentence_end", true},
       {"L03", "asanomadeisogasiidesita", {"\xe6\x9c\x9d\xe3\x81\xbe\xe3\x81\xa7"}, false, "end_of_phrase", false},
@@ -82,7 +82,7 @@ int main() {
       {"L18", "honntowaniomosirokatta", {"\xe6\x9c\xac\xe5\xbd\x93"}, false, "end_of_phrase", false},
       {"L20", "korehokanjidesu", {"\xe3\x81\x93\xe3\x82\x8c\xe3\x81\xaf\xe6\xbc\xa2\xe5\xad\x97\xe3\x81\xa7\xe3\x81\x99"}, false, "end_of_phrase", false},
 
-      // --- preserve must not regress ---
+      // 原文を保持すべき入力。
       {"E01", "Please update the Github repository.", {"Please update the Github repository."}, true, "end_of_phrase", false},
       {"E02", "This is a nice day.", {"This is a nice day."}, true, "end_of_phrase", false},
       {"E04", "hello world", {"hello world"}, true, "end_of_phrase", false},

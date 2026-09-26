@@ -1,7 +1,7 @@
-"""Build a local IME lexicon from fixed public sources; no typed text is uploaded.
+"""公開データからIME用の辞書を生成する。
 
-Run with --package-output during packaging, or without it to update the current
-user's cached public dictionary. The cache is separate from user_dictionary.tsv.
+--package-outputは同梱用の出力先を選ぶ。省略時は現在のユーザーの
+公開辞書を更新する。ユーザー辞書は別ファイルに保存する。
 """
 
 from __future__ import annotations
@@ -45,10 +45,10 @@ def to_hiragana(value: str) -> str:
 
 
 def lexical_entries(head: str, glosses: str):
-    """EDICT2 headwords, not English gloss translations. Respect reading restrictions.
+    """EDICT2の見出し語と、対応する読みを抽出する。
 
-    Supplement loanwords and common words, leaving inflection and word costs to
-    the main converter. Obsolete/irregular forms are not correction targets.
+    外来語と一般語を補い、活用と単語コストは本辞書に任せる。
+    廃語や不規則な表記は補正対象から除く。
     """
     match = re.fullmatch(r"(.+?) \[([^]]+)\]", head)
     forms = (match.group(1) if match else head).split(';')

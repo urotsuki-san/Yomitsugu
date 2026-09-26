@@ -1,4 +1,4 @@
-"""Offline real-engine evaluation. Uses its bundled lexicon, never user data or GUI."""
+"""同梱辞書を使い、固定入力の変換候補と所要時間を測る。"""
 import argparse
 import json
 import os

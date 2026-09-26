@@ -1,160 +1,179 @@
-"""Render a readable README animation from a native engine candidate log.
-
-The source log is produced by debug_dump --readme-demo without desktop input.
-Each displayed candidate is checked against a real engine result. The animation
-omits transient frames for legibility.
-"""
+"""打鍵を一文字ずつ描き、実際の変換候補でREADMEの入力例を作る。"""
 
 from __future__ import annotations
 
+import argparse
+import json
+from functools import lru_cache
 from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageFont
 
 ROOT = Path(__file__).resolve().parents[1]
-LOG = ROOT / "audit/2026-09-26/readme-demo/engine-demo.out.txt"
 ASSETS = ROOT / "docs/assets/readme"
 SIZE = (1000, 510)
+BG, PANEL, BORDER = "#f3f0e7", "#e8e4d9", "#c7c3b9"
+CYAN, AMBER, TEXT, MUTED = "#b94f2f", "#b94f2f", "#192b35", "#777b78"
+JP = "C:/Windows/Fonts/YuGothM.ttc"
+MONO = "C:/Windows/Fonts/CascadiaMono.ttf"
+FRAME_MS = 40
+KEY_MS = 160
 
-BG = "#08141e"
-PANEL = "#10212e"
-BORDER = "#294657"
-CYAN = "#3de0e5"
-AMBER = "#ffbd68"
-TEXT = "#f8f4e9"
-MUTED = "#98abb6"
-
-JP_FONT = Path("C:/Windows/Fonts/YuGothM.ttc")
-LATIN_FONT = Path("C:/Windows/Fonts/CascadiaMono.ttf")
-UI_FONT = Path("C:/Windows/Fonts/seguisb.ttf")
-
-
-def font(path: Path, size: int) -> ImageFont.FreeTypeFont:
-    return ImageFont.truetype(str(path), size)
-
-
-def events() -> dict[tuple[int, str], str]:
-    raw = LOG.read_text(encoding="utf-8-sig")
-    if raw.count("DEMO PASS") != 2 or "DEMO FAIL" in raw:
-        raise ValueError("Both native-engine demo cases must pass before rendering")
-    result: dict[tuple[int, str], str] = {}
-    for line in raw.splitlines():
-        if not line.startswith("DEMO_FRAME\t"):
-            continue
-        _, case, phase, typed, candidate = line.split("\t", 4)
-        if phase in ("typing", "committed"):
-            result[int(case), typed] = candidate.strip("\r\n")
-    return result
-
-
-def exact(log: dict[tuple[int, str], str], case: int, typed: str, candidate: str):
-    actual = log.get((case, typed))
-    if actual != candidate:
-        raise ValueError(f"Missing exact E2E frame: {case} {typed!r}: {actual!r}")
-    return case, typed, candidate
-
-
-def fitting(draw: ImageDraw.ImageDraw, value: str, path: Path, start: int, width: int):
-    for size in range(start, 20, -1):
-        face = font(path, size)
-        if draw.textbbox((0, 0), value, font=face)[2] <= width:
-            return face
-    raise ValueError(f"Text does not fit: {value}")
-
-
-def render(case: int, typed: str, candidate: str, *, complete: bool, step: int, total: int):
-    image = Image.new("RGB", SIZE, BG)
-    d = ImageDraw.Draw(image)
-    # READMEの配色に合わせ、文字の周囲に装飾を置く。
-    d.rectangle((0, 0, 10, SIZE[1]), fill=CYAN)
-    d.rectangle((40, 38, 54, 52), fill=AMBER)
-    d.text((70, 27), "YOMITSUGU", font=font(LATIN_FONT, 31), fill=TEXT)
-    d.text((726, 39), "INPUT DEMO  /  0%d" % case, font=font(LATIN_FONT, 17), fill=CYAN)
-    d.line((40, 91, 960, 91), fill=BORDER, width=2)
-
-    d.text((42, 115), "入力したキー", font=font(JP_FONT, 22), fill=MUTED)
-    d.rounded_rectangle((40, 153, 960, 250), radius=15, fill=PANEL, outline=BORDER, width=2)
-    typed_face = fitting(d, typed, LATIN_FONT, 30, 855)
-    d.text((67, 181), typed, font=typed_face, fill=CYAN)
-    cursor_x = 67 + d.textlength(typed, font=typed_face) + 7
-    if not complete and cursor_x < 938:
-        d.rounded_rectangle((cursor_x, 181, cursor_x + 3, 218), radius=1, fill=CYAN)
-
-    label = "確定した文字" if complete else "入力中の候補"
-    d.text((42, 278), label, font=font(JP_FONT, 22), fill=MUTED)
-    d.rounded_rectangle((40, 316, 960, 427), radius=15, fill=PANEL, outline=AMBER if complete else BORDER, width=2)
-    candidate_face = fitting(d, candidate, JP_FONT, 43, 855)
-    d.text((67, 342), candidate, font=candidate_face, fill=TEXT)
-    if complete:
-        d.rounded_rectangle((851, 278, 959, 308), radius=12, fill="#233e39")
-        d.text((865, 281), "Enter  確定", font=font(JP_FONT, 15), fill=CYAN)
-
-    d.text((42, 460), "変換エンジンの実測候補から抜粋", font=font(JP_FONT, 17), fill=MUTED)
-    d.text((816, 460), f"{step:02d} / {total:02d}", font=font(LATIN_FONT, 18), fill=AMBER)
-    return image
-
-
-def main():
-    log = events()
-    first = [
-        ("kyou", "今日"),
-        ("kyouha", "今日は"),
-        ("kyouhaii", "今日はいい"),
+CASES = [
+    (1, "日本語を続けて打つ", [
+        ("kyou", "今日"), ("kyouha", "今日は"), ("kyouhaii", "今日はいい"),
         ("kyouhaiitennki", "今日はいい天気"),
         ("kyouhaiitennkide", "今日はいい天気で"),
         ("kyouhaiitennkidesu", "今日はいい天気です"),
         ("kyouhaiitennkidesune", "今日はいい天気ですね"),
         ("kyouhaiitennkidesune.", "今日はいい天気ですね。"),
-    ]
-    second = [
-        ("API", "API"),
-        ("APIwo", "APIを"),
-        ("APIwokakunin", "APIを確認"),
+    ]),
+    (2, "英語を交えて打つ", [
+        ("API", "API"), ("APIwo", "APIを"), ("APIwokakunin", "APIを確認"),
         ("APIwokakuninshi", "APIを確認し"),
         ("APIwokakuninshite", "APIを確認して"),
+        ("APIwokakuninshiteku", "APIを確認してく"),
         ("APIwokakuninshitekuda", "APIを確認してくだ"),
         ("APIwokakuninshitekudasai", "APIを確認してください"),
         ("APIwokakuninshitekudasai.", "APIを確認してください。"),
-    ]
-    keyframes = []
-    keyframe_durations = []
-    total = len(first) + len(second)
-    step = 0
+    ]),
+]
+
+
+@lru_cache(maxsize=32)
+def font(path: str, size: int):
+    return ImageFont.truetype(path, size)
+
+
+def verified_events(path: Path):
+    data = path.read_text(encoding="utf-8-sig")
+    if data.count("DEMO PASS") != len(CASES) or "DEMO FAIL" in data:
+        raise ValueError("Demo conversion did not pass")
+    result = {}
+    for line in data.splitlines():
+        if line.startswith("DEMO_FRAME\t"):
+            _, case, phase, typed, candidate = line.split("\t", 4)
+            if phase == "typing":
+                result[int(case), typed] = candidate
+    for case, _, states in CASES:
+        for typed, candidate in states:
+            if result.get((case, typed)) != candidate:
+                raise ValueError(f"Candidate mismatch: {case}, {typed}")
+    return result
+
+
+def draw_frame(case, title, typed, candidate, previous, changed_ms, key_ms, elapsed, committed):
+    image = Image.new("RGB", SIZE, BG)
+    d = ImageDraw.Draw(image)
+    d.rectangle((0, 0, 16, SIZE[1]), fill=TEXT)
+    d.text((51, 32), "YOMITSUGU", font=font(MONO, 24), fill=TEXT)
+    d.text((740, 37), "ROMAJI / JAPANESE", font=font(MONO, 15), fill=MUTED)
+    d.line((52, 84, 951, 84), fill=BORDER, width=1)
+    d.text((52, 108), "ローマ字を、ことばへ。", font=font(JP, 22), fill=TEXT)
+    d.text((905, 99), f"0{case}", font=font(MONO, 37), fill=CYAN)
+
+    face = font(JP, 49)
+    prefix = 0
+    while prefix < min(len(previous), len(candidate)) and previous[prefix] == candidate[prefix]:
+        prefix += 1
+    x, y = 52, 205
+    old = candidate[:prefix]
+    fresh = candidate[prefix:]
+    d.text((x, y), old, font=face, fill=TEXT)
+    fresh_x = x + d.textlength(old, font=face)
+    d.text((fresh_x, y), fresh, font=face, fill=CYAN if changed_ms < 240 and not committed else TEXT)
+    end_x = x + d.textlength(candidate, font=face)
+    if candidate and not committed and changed_ms < 280:
+        d.line((fresh_x, 275, end_x, 275), fill=CYAN, width=2)
+    if not committed and (key_ms < 350 or elapsed % 1000 < 560):
+        old_x = x + d.textlength(previous, font=face)
+        amount = min(changed_ms / 120, 1)
+        cursor_x = old_x + (end_x - old_x) * (1 - (1 - amount) ** 3)
+        d.rectangle((cursor_x + 4, y + 9, cursor_x + 7, y + 58), fill=CYAN)
+
+    d.line((52, 322, 951, 322), fill=TEXT, width=1)
+    d.text((52, 344), "KEYSTROKES", font=font(MONO, 13), fill=MUTED)
+    d.text((818, 341), "確定" if committed else "入力中", font=font(JP, 16), fill=CYAN)
+    # 打鍵は全て表示する。候補の切り替えでは文字列全体をフェードさせない。
+    keys = list(typed)
+    key_x = 52
+    for index, key in enumerate(keys):
+        latest = index == len(keys) - 1 and key_ms < KEY_MS and not committed
+        lift = int(7 * (1 - min(key_ms / 120, 1)) ** 2) if latest else 0
+        if latest:
+            d.rectangle((key_x - 3, 386 + lift, key_x + 23, 427 + lift), fill=CYAN)
+        glyph = font(MONO, 24)
+        width = d.textlength(key, font=glyph)
+        d.text((key_x + (20 - width) / 2, 388 + lift), key, font=glyph, fill=BG if latest else TEXT)
+        key_x += 28
+    if committed:
+        d.rectangle((814, 385, 950, 429), fill=TEXT)
+        d.text((831, 392), "Enter", font=font(MONO, 20), fill=BG)
+        d.line((929, 397, 929, 410, 912, 410), fill=BG, width=2)
+        d.line((918, 404, 912, 410, 918, 416), fill=BG, width=2)
+    d.line((52, 452, 951, 452), fill=BORDER, width=1)
+    d.text((52, 467), title, font=font(JP, 16), fill=MUTED)
+    d.text((732, 470), "YOMITSUGU  /  INPUT", font=font(MONO, 13), fill=MUTED)
+    return image
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--log", type=Path, default=ROOT / "audit/2026-09-26/readme-demo/engine-demo.out.txt")
+    args = parser.parse_args()
+    records = verified_events(args.log)
+    frames, durations, samples = [], [], []
     still = None
-    for case, series in ((1, first), (2, second)):
-        for index, (typed, candidate) in enumerate(series):
-            step += 1
-            exact(log, case, typed, candidate)
-            complete = index == len(series) - 1
-            frame = render(case, typed, candidate, complete=complete, step=step, total=total)
-            keyframes.append(frame)
-            keyframe_durations.append(1250 if complete else 210)
-            if case == 2 and complete:
+    for case, title, states in CASES:
+        raw = states[-1][0]
+        checkpoints = {typed: value for typed, value in states}
+        candidate = previous = ""
+        last_change = 0
+        length_ms = 480 + len(raw) * KEY_MS + 1760
+        previous_count = 0
+        for elapsed in range(0, length_ms, FRAME_MS):
+            count = min(len(raw), max(0, (elapsed - 480) // KEY_MS + 1))
+            typed = raw[:count]
+            key_at = 480 + (count - 1) * KEY_MS if count else 0
+            if count != previous_count:
+                value = checkpoints.get(typed)
+                if value is None and count < len(states[0][0]):
+                    value = records[case, typed]
+                if value is not None and value != candidate:
+                    previous, candidate, last_change = candidate, value, elapsed
+                previous_count = count
+            committed = elapsed >= 480 + len(raw) * KEY_MS + 560
+            frame = draw_frame(case, title, typed, candidate, previous, elapsed - last_change,
+                               elapsed - key_at, elapsed, committed)
+            frames.append(frame)
+            durations.append(FRAME_MS)
+            if count == len(raw) and committed and still is None and case == 1:
                 still = frame
-    assert still is not None
-    frames = []
-    durations = []
-    for index, frame in enumerate(keyframes):
-        frames.append(frame)
-        durations.append(keyframe_durations[index])
-        if index + 1 == len(keyframes):
-            continue
-        following = keyframes[index + 1]
-        # 表示の切り替えに短いフェードを入れ、打鍵間の動きをつなぐ。
-        for fraction in (0.25, 0.5, 0.75):
-            frames.append(Image.blend(frame, following, fraction))
-            durations.append(55)
+            if elapsed in (1120, 2240, 3360, length_ms - 40):
+                samples.append(frame.resize((500, 255)))
+    # 全フレームで同じパレットを使い、背景色のちらつきを防ぐ。
+    palette_source = Image.new("RGB", (SIZE[0], SIZE[1] * len(CASES)))
+    palette_source.paste(frames[0], (0, 0))
+    palette_source.paste(frames[len(frames) // 2], (0, SIZE[1]))
+    palette_source.paste(frames[-1].crop((0, 200, 1000, 470)), (0, 510))
+    palette = palette_source.quantize(colors=192, method=Image.Quantize.MEDIANCUT)
+    indexed = [frame.quantize(palette=palette, dither=Image.Dither.NONE) for frame in frames]
     ASSETS.mkdir(parents=True, exist_ok=True)
     still.save(ASSETS / "input-demo-still.png", optimize=True)
-    frames[0].save(
-        ASSETS / "input-demo.gif",
-        save_all=True,
-        append_images=frames[1:],
-        duration=durations,
-        loop=0,
-        optimize=True,
-        disposal=2,
-    )
-    print(f"Rendered {len(frames)} frames from {len(keyframes)} recorded engine states")
+    indexed[0].save(ASSETS / "input-demo.gif", save_all=True, append_images=indexed[1:],
+                    duration=durations, loop=0, optimize=True, disposal=1)
+    sheet = Image.new("RGB", (1000, 255 * ((len(samples) + 1) // 2)), BG)
+    for index, frame in enumerate(samples):
+        sheet.paste(frame, ((index % 2) * 500, (index // 2) * 255))
+    proof = args.log.parent / "demo-contact-sheet.png"
+    sheet.save(proof)
+    report = {"frames": len(frames), "duration_ms": sum(durations), "frame_ms": FRAME_MS,
+              "key_interval_ms": KEY_MS, "typed_keys": sum(len(case[2][-1][0]) for case in CASES),
+              "verified_candidate_states": sum(len(case[2]) for case in CASES),
+              "gif_bytes": (ASSETS / "input-demo.gif").stat().st_size}
+    (args.log.parent / "demo-render.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    print(json.dumps(report))
+    print(proof)
 
 
 if __name__ == "__main__":

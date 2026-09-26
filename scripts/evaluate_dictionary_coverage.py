@@ -1,4 +1,4 @@
-"""Deterministic dictionary coverage probe; not an accuracy benchmark."""
+"""辞書から一定の規則で語を抽出し、読みと変換候補を調べる。"""
 from pathlib import Path
 import argparse, gzip, hashlib, importlib.util, json, re, subprocess
 

@@ -1015,13 +1015,13 @@ std::vector<std::vector<std::pair<Kind, std::pair<size_t, size_t>>>> RegionHyps(
   // java+wotukaimasuのように、文頭が4文字以上の既知の英単語なら分割も試す。
 
   std::vector<size_t> cuts;
-  // TITLE_RE: ^[A-Z][a-z]+  → cut at end of leading capitalized word
+  // 先頭が大文字の単語（^[A-Z][a-z]+）の終端を境界候補にする。
   if (n >= 2 && std::isupper(static_cast<unsigned char>(text[0]))) {
     size_t i = 1;
     while (i < n && std::islower(static_cast<unsigned char>(text[i]))) ++i;
     if (i > 1 && i < n) cuts.push_back(i);
   }
-  // CAMEL_RE token starts/ends: [A-Z]+(?![a-z]) | [A-Z][a-z]+ | [a-z]+ | \d+
+  // 大文字列・単語・数字の境界を分割候補にする。
   {
     size_t i = 0;
     while (i < n) {

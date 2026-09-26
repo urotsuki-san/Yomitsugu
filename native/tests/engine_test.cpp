@@ -103,7 +103,7 @@ int main() {
   }
   Expect(Has(Make("name"), "name"), "A03 raw present");
 
-  // session / space contract
+  // 入力状態に応じたSpaceの動作。
   {
     Session s;
     s.set_punctuation_completion(true);
@@ -125,7 +125,7 @@ int main() {
     Expect(!s.output_log().empty() && s.output_log()[0] != "enter_passthrough", "enter commits");
   }
 
-  // F6-F10 character class conversion
+  // F6～F10による文字種の変換。
   {
     Expect(ConvertCharacterClass(u8"こんにちは", 0x77) != u8"こんにちは", "F8 halfwidth changes");
     std::string hw = ConvertCharacterClass(u8"こんにちは", 0x77);
@@ -140,7 +140,7 @@ int main() {
     Expect(hira == u8"こんにちは", "F6 katakana to hiragana", hira);
   }
 
-  // candidate navigation + segment movement
+  // 候補と文節の移動。
   {
     Session s;
     s.Type("konnitiwa");
@@ -155,7 +155,7 @@ int main() {
     bool sel = s.SelectCandidate(0);
     Expect(sel, "select candidate 0");
     Expect(s.is_converting(), "still converting after select");
-    // segment nav on multi-class raw
+    // 英日混在の入力で文節を移動する。
     Session s2;
     s2.Type("READMEwoyondekudasai.");
     s2.PressSpace();
@@ -170,12 +170,12 @@ int main() {
     Expect(s2.segment_index() == si0, "left restores segment", std::to_string(s2.segment_index()));
     size_t before = s2.raw_text().size();
     s2.PressShiftRight();
-    // shift-right may expand within bounds; raw_text unchanged
+    // Shift+右で境界を拡張しても原文を変えない。
     Expect(s2.raw_text().size() == before, "shift-resize keeps raw");
     Expect(s2.is_converting(), "still converting after segment ops");
   }
 
-  // ReplaceVisible + DeleteForward
+  // 表示文字の置換とカーソル後方の削除。
   {
     Session s;
     s.Type("konnitiwa");
@@ -189,7 +189,7 @@ int main() {
            "delete forward runs");
   }
 
-  // AzooKey/Zenzai bridge (load if present; skip soft if missing)
+  // AzooKey/Zenzaiとの接続。実行環境がなければこの項目は省略する。
   {
     bool ready = AzookeyEnsureReady();
     std::printf("azookey ready=%d available=%d\n", ready ? 1 : 0, AzookeyAvailable() ? 1 : 0);
@@ -209,7 +209,7 @@ int main() {
     }
   }
 
-  // latency sample
+  // 表示遅延の測定。
   {
     auto in = Make("Githubnoripojitoriwokousinnsitekudasai", "sentence_end", true);
     auto t0 = std::chrono::steady_clock::now();
@@ -220,7 +220,7 @@ int main() {
     Expect(ms < 50.0, "latency mean < 50ms");
   }
 
-  // warm p95/p99 sample (spec: report, not hard gate on cold path)
+  // ウォーム時のp95/p99を測定する。初回ロードは別に扱う。
   {
     auto in = Make("konnitiwa", "sentence_end", true);
     Decode(in);  // warm

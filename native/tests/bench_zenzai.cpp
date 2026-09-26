@@ -28,7 +28,7 @@ int main() {
       u8"わたしのなまえはたなかです",
   };
 
-  // cold: unique keys, first convert may run Zenzai inference
+  // 異なる読みを変換し、初回のZenzai推論を含めて測る。
   {
     std::vector<double> cold;
     for (size_t i = 0; i < samples.size(); ++i) {
@@ -43,7 +43,7 @@ int main() {
     }
   }
 
-  // warm: same keys hit cache + zenzai cache
+  // 同じ読みを再変換し、キャッシュがある状態で測る。
   {
     std::vector<double> warm;
     for (int r = 0; r < 20; ++r) {
@@ -63,7 +63,7 @@ int main() {
                 pct(0.50), pct(0.95), pct(0.99), warm.back());
   }
 
-  // Decode-level with mixed JA (includes azo alts)
+  // 英日混在のDecodeを、AzooKeyの候補を含めて測る。
   {
     DecodeInput in;
     in.raw_text = "kyouhaiitennkidesune.";

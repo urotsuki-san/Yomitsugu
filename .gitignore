@@ -9,6 +9,7 @@ __pycache__/
 *.log
 *.err
 native/build/
+native/build-*/
 upstream/
 dist/
 audit/

@@ -14,7 +14,7 @@
 
 #pragma comment(lib, "ole32.lib")
 
-// Must match tip.h
+// tip.hの登録GUIDと一致させる。
 static const GUID kTextServiceClsid = {
     0x8f3a1c2e, 0x4b5d, 0x4e6f, {0x8a, 0x9b, 0x0c, 0x1d, 0x2e, 0x3f, 0x4a, 0x5b}};
 static const GUID kProfileGuid = {
@@ -146,7 +146,7 @@ static void FocusEdit() {
   SetForegroundWindow(g_hMain);
   SetFocus(g_hEdit);
   Pump(30);
-  // re-assert our profile for this thread after focus changes
+  // フォーカス移動後に、試験スレッドの入力プロファイルを選び直す。
   if (!g_activate_profile) return;
   ITfInputProcessorProfiles* profiles = nullptr;
   if (SUCCEEDED(CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
@@ -228,7 +228,7 @@ static bool CreateUi() {
                             wc.hInstance, nullptr);
   if (!g_hMain) return false;
 
-  // RichEdit supports TSF, but SES_USECTF is off by default.
+  // Rich EditでTSFを有効にする。SES_USECTFは既定でオフ。
   HMODULE hre = LoadLibraryW(L"Msftedit.dll");
   if (!hre) return false;
   g_hEdit = CreateWindowExW(WS_EX_CLIENTEDGE, L"RICHEDIT50W", L"",
@@ -240,8 +240,8 @@ static bool CreateUi() {
   if ((edit_style & SES_USECTF) == 0) return false;
 
   ShowWindow(g_hMain, SW_SHOWNORMAL);
-  // A launcher may specify STARTUPINFO::wShowWindow. Windows ignores nCmdShow
-  // on the first call in that case; the second call must make the host visible.
+  // 起動元がwShowWindowを指定すると初回のnCmdShowが無視されるため、
+  // 2回目のShowWindowで試験ホストを表示する。
   ShowWindow(g_hMain, SW_SHOWNORMAL);
   UpdateWindow(g_hMain);
   if (!IsWindowVisible(g_hMain)) return false;
@@ -316,8 +316,8 @@ int main(int argc, char** argv) {
     return 2;
   }
 
-  // RichEdit can initialize TSF itself, but the E2E host must own a balanced
-  // activation so selecting a profile also activates its text service here.
+  // 試験ホスト自身でTSFを有効化し、プロファイルの選択を入力サービスへ反映する。
+  // 終了時には対応するDeactivateを呼ぶ。
   ITfThreadMgr* tsf_thread_mgr = nullptr;
   HRESULT hrTsf = CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER,
                                    IID_ITfThreadMgr,
@@ -436,7 +436,7 @@ int main(int argc, char** argv) {
               LOWORD(reinterpret_cast<ULONG_PTR>(GetKeyboardLayout(0))));
   std::printf("E2E TIP module_loaded=%d\n", GetModuleHandleW(L"ime_mixed_tip_v13.dll") ? 1 : 0);
 
-  // The Windows input indicator must expose this TIP's あ menu item.
+  // 入力インジケーターに、このTIPの「あ」メニューが登録されているか確認する。
   {
     ITfLangBarItemMgr* manager = nullptr;
     ITfLangBarItem* item = nullptr;
@@ -459,8 +459,8 @@ int main(int argc, char** argv) {
     if (manager) manager->Release();
   }
 
-  // Prevent the legacy non-empty checks below from passing on raw alphabetic
-  // input when the profile was selected but the text service is not handling keys.
+  // プロファイル選択だけで成功とせず、実際にキーが変換されることを確認する。
+  // 後続の空文字チェックだけでは、英字のまま通る不具合を見逃す。
   {
     ClearBetween();
     RunKeys("ka");
@@ -471,7 +471,7 @@ int main(int argc, char** argv) {
     PrintTipDiagnostics("after_T00");
   }
 
-  // T01: type + Enter commits and clears composition (lifecycle)
+  // T01: 入力をEnterで確定し、未確定状態を終了する。
   {
     ClearBetween();
     FocusEdit();
@@ -482,7 +482,7 @@ int main(int argc, char** argv) {
     std::wstring t = GetEditText();
     std::printf("T01 text=[%s] len=%zu\n", Utf8(t.c_str()).c_str(), t.size());
     Expect(!t.empty(), "T01 enter commits non-empty");
-    // must be able to continue - no stuck composition: type again
+    // 確定後に続けて入力できることを確認する。
     RunKeys("a");
     Pump(50);
     SendVk(VK_RETURN);
@@ -492,7 +492,7 @@ int main(int argc, char** argv) {
     Expect(t2.size() > t.size(), "T01 second cycle appends (no stuck composition)");
   }
 
-  // T02: Escape cancels composition, leaves no committed text
+  // T02: Escで取り消し、確定文字を残さない。
   {
     ClearBetween();
     FocusEdit();
@@ -503,7 +503,7 @@ int main(int argc, char** argv) {
     std::wstring t = GetEditText();
     std::printf("T02 text=[%s] len=%zu\n", Utf8(t.c_str()).c_str(), t.size());
     Expect(t.empty(), "T02 escape cancels", std::to_string(t.size()));
-    // after cancel, re-assert focus then type
+    // 取り消し後にフォーカスを戻して入力する。
     FocusEdit();
     RunKeys("hi");
     Pump(80);
@@ -514,7 +514,7 @@ int main(int argc, char** argv) {
     Expect(!t2.empty(), "T02 type after escape works");
   }
 
-  // T03: Space conversion then Enter
+  // T03: Spaceで変換してEnterで確定する。
   {
     ClearBetween();
     FocusEdit();
@@ -528,7 +528,7 @@ int main(int argc, char** argv) {
     std::wstring t = GetEditText();
     std::printf("T03 text=[%s] len=%zu\n", Utf8(t.c_str()).c_str(), t.size());
     Expect(!t.empty(), "T03 space+enter commits");
-    // composition must be finished - direct latin without conversion path should still work
+    // 確定後も英字を入力できることを確認する。
     ClearBetween();
     RunKeys("test");
     Pump(50);
@@ -539,20 +539,19 @@ int main(int argc, char** argv) {
     Expect(!t2.empty(), "T03 subsequent typing works");
   }
 
-  // T04: non-composing Space passes through (inserts into edit when no composition)
+  // T04: 未確定入力がなければSpaceをアプリへ渡す。
   {
     ClearBetween();
     FocusEdit();
-    // First ensure not composing: Escape
+    // Escで未確定入力を取り消す。
     SendVk(VK_ESCAPE);
     Pump(50);
-    // Type nothing, press space - should pass through to app
+    // 文字を入力せずSpaceを押す。
     SendVk(VK_SPACE);
     Pump(80);
     std::wstring t = GetEditText();
     std::printf("T04 text=[%s] len=%zu\n", Utf8(t.c_str()).c_str(), t.size());
-    // Space when not composing should appear in edit OR be harmless; must not hang
-    // Then type letters and commit
+    // Spaceの後も文字入力と確定ができることを確認する。
     RunKeys("abc");
     Pump(50);
     SendVk(VK_RETURN);
@@ -562,7 +561,7 @@ int main(int argc, char** argv) {
     Expect(!t2.empty(), "T04 input after idle space works");
   }
 
-  // T05: multiple rapid cycles - regression for permanent composition lock
+  // T05: 入力と確定を繰り返し、未確定状態が固まらないことを確認する。
   {
     ClearBetween();
     bool all_ok = true;
@@ -583,7 +582,7 @@ int main(int argc, char** argv) {
     Expect(all_ok, "T05 five commit cycles all succeed");
   }
 
-  // T06: Backspace during composition then Enter
+  // T06: 入力中にBackspaceで削除してから確定する。
   {
     ClearBetween();
     FocusEdit();
@@ -596,7 +595,7 @@ int main(int argc, char** argv) {
     std::wstring t = GetEditText();
     std::printf("T06 text=[%s]\n", Utf8(t.c_str()).c_str());
     Expect(!t.empty(), "T06 backspace+enter commits");
-    // still alive
+    // 削除後も入力できることを確認する。
     ClearEdit();
     RunKeys("x");
     Pump(40);
@@ -605,7 +604,7 @@ int main(int argc, char** argv) {
     Expect(!GetEditText().empty(), "T06 still alive after backspace cycle");
   }
 
-  // T07: English word + space keeps working (space insert path for english)
+  // T07: 英単語の後に空白を入力する。
   {
     ClearBetween();
     FocusEdit();
@@ -620,7 +619,7 @@ int main(int argc, char** argv) {
     Expect(!t.empty(), "T07 english+space+enter commits");
   }
 
-  // T08: registration gone check is outside; here ensure no modal hang - long pause then type
+  // T08: 入力を中断し、待機後に再び入力する。
   {
     ClearBetween();
     Pump(500);
@@ -632,7 +631,7 @@ int main(int argc, char** argv) {
     Expect(!GetEditText().empty(), "T08 type after idle works");
   }
 
-  // T09: F7/F6 character class during composition (KEY-09)
+  // T09: F7/F6で文字種を変換する（KEY-09）。
   {
     ClearBetween();
     FocusEdit();
@@ -645,7 +644,7 @@ int main(int argc, char** argv) {
     std::wstring t = GetEditText();
     std::printf("T09 text=[%s]\n", Utf8(t.c_str()).c_str());
     Expect(!t.empty(), "T09 F7+enter commits");
-    // F-keys must not hang: type again after
+    // 文字種の変換後も入力できることを確認する。
     ClearEdit();
     RunKeys("a");
     Pump(40);
@@ -654,7 +653,7 @@ int main(int argc, char** argv) {
     Expect(!GetEditText().empty(), "T09 alive after F7");
   }
 
-  // T10: Space then digit candidate select (KEY-11)
+  // T10: Spaceの後に番号で候補を選ぶ（KEY-11）。
   {
     ClearBetween();
     FocusEdit();
@@ -671,7 +670,7 @@ int main(int argc, char** argv) {
     Expect(!t.empty(), "T10 digit-select+enter commits");
   }
 
-  // T11: Space then Down/Up candidate nav, then Enter
+  // T11: 上下キーで候補を選んで確定する。
   {
     ClearBetween();
     FocusEdit();
@@ -690,7 +689,7 @@ int main(int argc, char** argv) {
     Expect(!t.empty(), "T11 down/up+enter commits");
   }
 
-  // T12: Left/Right segment keys during conversion must not hang or leak to app as garbage
+  // T12: 変換中の左右キーで処理が停止したり、不正な文字が入ったりしないか確認する。
   {
     ClearBetween();
     FocusEdit();
@@ -709,7 +708,7 @@ int main(int argc, char** argv) {
     Expect(!t.empty(), "T12 segment arrows+enter commits");
   }
 
-  // Release regression: exact output, not merely non-empty text.
+  // 配布前の回帰試験。確定文字列の全文一致を確認する。
   {
     ClearBetween(); RunKeys("hello"); SendVk(VK_F9); SendVk(VK_RETURN); Pump(100);
     Expect(GetEditText() == L"ｈｅｌｌｏ", "R01 F9 exact fullwidth and commit caret");
@@ -728,7 +727,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN); Pump(100);
     Expect(GetEditText() == L"図書館", "R04 real dictionary through isolated worker");
   }
-  // Reported everyday input failures: exact committed text through TSF.
+  // 報告された入力例をTSF経由で打鍵し、確定文字列を確認する。
   const struct { const char* keys; const wchar_t* expected; const char* label; } user_cases[] = {
       {"ltu", L"っ", "R05 ltu small tsu"},
       {"samukunaltutekimasitane", L"寒くなってきましたね", "R06 sentence with ltu"},

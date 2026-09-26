@@ -1,4 +1,4 @@
-"""Regenerate the bundled romanization table from a pinned Mozc revision."""
+"""固定リビジョンのMozcから同梱ローマ字表を生成する。"""
 import hashlib
 import json
 from pathlib import Path

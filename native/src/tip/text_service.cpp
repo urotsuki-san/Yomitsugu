@@ -525,7 +525,7 @@ HRESULT TextService::UninitThreadMgrSink() {
   return S_OK;
 }
 
-// --- key events ---
+// キー入力。
 STDMETHODIMP TextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPARAM, BOOL* pfEaten) {
   g_diagnostics.test_key_down.fetch_add(1);
   if (!pfEaten) return E_POINTER;
@@ -666,7 +666,7 @@ void TextService::SyncCandidateWindow(ITfContext*) {
   cand_window_.Show(session_.candidates(), session_.selected_index(), caret_point_);
 }
 
-// --- thread mgr / composition ---
+// TSFスレッドと未確定文字列。
 STDMETHODIMP TextService::OnInitDocumentMgr(ITfDocumentMgr*) { return S_OK; }
 STDMETHODIMP TextService::OnUninitDocumentMgr(ITfDocumentMgr*) { return S_OK; }
 STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr*) {
