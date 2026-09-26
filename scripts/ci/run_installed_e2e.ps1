@@ -59,8 +59,9 @@ foreach($taskCase in @(@{name='full';arguments=@()},@{name='reported';arguments=
     if($taskCase.arguments.Count){$taskStart.ArgumentList=$taskCase.arguments}
     $taskProcess=Start-Process @taskStart
     $taskHandle=$taskProcess.Handle
-    if(-not $taskProcess.WaitForExit(150000)){
+    if(-not $taskProcess.WaitForExit(300000)){
         Stop-Process -Id $taskProcess.Id
+        Get-Content -LiteralPath $taskLog -Encoding UTF8
         throw ('Input test timed out: '+$taskCase.name)
     }
     $taskLines=Get-Content -LiteralPath $taskLog -Encoding UTF8

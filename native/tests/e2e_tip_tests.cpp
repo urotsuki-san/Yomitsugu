@@ -384,6 +384,27 @@ int main(int argc, char** argv) {
   }
   Pump(100);
   FocusEdit();
+  // 言語を切り替えると開閉状態も切り替わるので、選択後に入力を開く。
+  SendMessageW(g_hEdit, EM_SETCTFOPENSTATUS, TRUE, 0);
+  ITfCompartmentMgr* compartments = nullptr;
+  ITfCompartment* keyboard_open = nullptr;
+  HRESULT open_hr = tsf_thread_mgr->QueryInterface(IID_ITfCompartmentMgr,
+      reinterpret_cast<void**>(&compartments));
+  if (SUCCEEDED(open_hr)) open_hr = compartments->GetCompartment(
+      GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, &keyboard_open);
+  if (SUCCEEDED(open_hr)) {
+    VARIANT enabled{}; enabled.vt = VT_I4; enabled.lVal = 1;
+    open_hr = keyboard_open->SetValue(tsf_client_id, &enabled);
+  }
+  if (keyboard_open) keyboard_open->Release();
+  if (compartments) compartments->Release();
+  std::printf("Open selected IME hr=0x%08lx edit_open=%d\n", open_hr,
+              SendMessageW(g_hEdit, EM_GETCTFOPENSTATUS, 0, 0) ? 1 : 0);
+  if (FAILED(open_hr)) {
+    DestroyWindow(g_hMain); tsf_thread_mgr->Deactivate();
+    tsf_thread_mgr->Release(); CoUninitialize(); return 2;
+  }
+  Pump(100);
   if (argc == 2 && std::strcmp(argv[1], "--learning-inputs") == 0) {
     ClearBetween(); RunKeys("sannkai"); Pump(1500);
     const auto original=GetEditText();
