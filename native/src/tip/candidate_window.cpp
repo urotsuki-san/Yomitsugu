@@ -25,7 +25,7 @@ bool CandidateWindow::Create(HINSTANCE instance, HWND parent) {
   hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClass, L"変換候補",
                          WS_POPUP | WS_BORDER, 0, 0, 0, 0, parent, nullptr, instance, this);
   if (!hwnd_) return false;
-  // A standard list exposes candidate text/selection through native accessibility.
+  // 標準リストを使い、候補の文字列と選択状態を支援技術へ伝える。
   list_ = CreateWindowExW(0, L"LISTBOX", L"変換候補", WS_CHILD | WS_VISIBLE | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT,
                           0, 0, 0, 0, hwnd_, reinterpret_cast<HMENU>(1), instance, nullptr);
   return list_ != nullptr;

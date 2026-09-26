@@ -2,8 +2,7 @@
 
 #include "tip.h"
 
-// The standard Windows input indicator owns the tray surface. This item only
-// contributes an IME-specific button and menu while the text service is active.
+// IMEの有効中に、Windowsの入力インジケーターへボタンとメニューを登録する。
 class InputModeMenu final : public ITfLangBarItemButton, public ITfSource {
  public:
   InputModeMenu();

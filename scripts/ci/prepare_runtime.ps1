@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $taskRoot = (Resolve-Path (Join-Path $PSScriptRoot '../..')).Path
 $taskMyime = Join-Path $taskRoot 'upstream/myime'
 $taskOut = Join-Path $taskMyime 'build/x64/release'
@@ -52,7 +52,7 @@ foreach ($taskStem in @('AzooKeyKanaKanjiConverter_EfficientNGram','AzooKeyKanaK
   $taskBundle = Get-ChildItem -LiteralPath $taskSwiftBuild -Recurse -Directory |
     Where-Object { $_.Name -in @("$taskStem.bundle","$taskStem.resources") } | Select-Object -First 1
   if (-not $taskBundle) { throw "Swift resource bundle missing: $taskStem" }
-  Copy-Item -LiteralPath $taskBundle.FullName -Destination (Join-Path $taskOut "$taskStem.bundle") -Recurse -Force
+  Copy-Item -LiteralPath $taskBundle.FullName -Destination (Join-Path $taskOut $taskBundle.Name) -Recurse -Force
 }
 & (Join-Path $taskMyime 'scripts/ci/copy-swift-runtime.ps1') -OutputDir $taskOut
 foreach ($taskName in @('swiftCore.dll','Foundation.dll','_FoundationICU.dll','dispatch.dll')) {

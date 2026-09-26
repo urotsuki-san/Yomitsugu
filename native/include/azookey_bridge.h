@@ -11,7 +11,7 @@ struct AzookeyCandidate {
 };
 std::vector<AzookeyCandidate> ParseAzookeyCandidates(const std::string& json);
 
-// Dynamic azookey-engine.dll bridge (optional). Safe no-ops when unavailable.
+// azookey-engine.dllを動的に読み込む。利用できない場合は空の結果を返す。
 bool AzookeyEnsureReady();
 bool AzookeyAvailable();
 std::vector<std::string> AzookeyConvert(const std::string& hiragana, int limit);

@@ -3,7 +3,7 @@
 #include <windows.h>
 #include <cstdint>
 
-// Counts only lifecycle and routing outcomes. Never stores key codes or input.
+// 起動・終了とキー処理の成否を数える。入力内容は記録しない。
 struct TipDiagnostics {
   std::uint32_t size;
   std::uint32_t activate_calls;

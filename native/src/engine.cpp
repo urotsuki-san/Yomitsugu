@@ -325,14 +325,14 @@ std::string ConvertRomajiImpl(const std::string& src, bool* fully) {
       i += used;
       continue;
     }
-    // Sokuon: doubled consonant (gakkou/katta) → っ + resume at second letter.
+    // 重なった子音を「っ」にし、2文字目から変換を続ける。
     if (std::isalpha(static_cast<unsigned char>(ch)) && i + 1 < src.size() &&
         src[i + 1] == ch && ch != 'n' && ch != 'w' && ch != 'y') {
       out += u8"っ";
       i += 1;
       continue;
     }
-    // Trailing u/o after small-kana often is a long vowel (tyuo/chuo→ちゅう).
+    // 小さいかなに続くu/oを長音として補正する（tyuo/chuo→ちゅう）。
     if ((ch == 'o' || ch == 'u') && i + 1 >= src.size() && !out.empty()) {
       static const char* smalls[] = {"ゅ", "ょ", "ャ", "ュ", "ョ", "ぁ", "ぃ", "ぅ", "ぇ", "ぉ"};
       bool after_small = false;
@@ -447,7 +447,7 @@ std::vector<std::string> KanaRepairVariants(const std::string& reading) {
       std::string v = reading.substr(0, i) + ins + reading.substr(i);
       if (seen.insert(v).second) out.push_back(v);
     }
-    // は ↔ わ (UTF-8 aware)
+    // UTF-8の文字境界を保ち、助詞の「は」と「わ」を入れ替える。
     if (reading.compare(i, 3, u8"わ") == 0) {
       std::string v = reading.substr(0, i) + u8"は" + reading.substr(i + 3);
       if (seen.insert(v).second) out.push_back(v);
@@ -455,7 +455,7 @@ std::vector<std::string> KanaRepairVariants(const std::string& reading) {
       std::string v = reading.substr(0, i) + u8"わ" + reading.substr(i + 3);
       if (seen.insert(v).second) out.push_back(v);
     }
-    // ほ ↔ は (particle typo koreho→koreha) and お ↔ う long vowel
+    // 助詞の「ほ」→「は」と、長音の「お」→「う」を試す。
     if (reading.compare(i, 3, u8"ほ") == 0) {
       std::string v = reading.substr(0, i) + u8"は" + reading.substr(i + 3);
       if (seen.insert(v).second) out.push_back(v);
@@ -471,7 +471,7 @@ std::vector<std::string> KanaRepairVariants(const std::string& reading) {
       std::string v = reading.substr(0, i) + u8"お";
       if (seen.insert(v).second) out.push_back(v);
     }
-    // き ↔ こ, た ↔ だ adjacent-typo helpers
+    // 「き」と「こ」、「た」と「だ」の打ち間違いを補正する。
     if (reading.compare(i, 3, u8"こ") == 0) {
       std::string v = reading.substr(0, i) + u8"き" + reading.substr(i + 3);
       if (seen.insert(v).second) out.push_back(v);
@@ -502,8 +502,7 @@ std::vector<ReadingSolution> SolveReading(const std::string& reading) {
       add({p.surface, p.cost, 0.0});
     }
   }
-  // Long-vowel repair (tokyo→とうきょう, kisyo→きしょう): insert う once, or
-  // twice for short readings (two insert positions, still cheap).
+  // 長音の「う」を1箇所に補う。短い読みでは2箇所への挿入も試す。
   {
     static const std::string ou = u8"う";
     std::vector<std::string> lens{reading};
@@ -519,7 +518,7 @@ std::vector<ReadingSolution> SolveReading(const std::string& reading) {
       i += cp_len;
     }
     if (reading.size() <= 24) {
-      // double う insert: と+きょ → とうきょう
+      // 「ときょ」→「とうきょう」のように「う」を2箇所に補う。
       for (size_t a = 0; a < lens.size() && a < 8; ++a) {
         for (size_t i = 0; i < lens[a].size();) {
           unsigned char b0 = static_cast<unsigned char>(lens[a][i]);
@@ -558,8 +557,7 @@ std::vector<ReadingSolution> SolveReading(const std::string& reading) {
     }
   }
 
-  // word DP with optional particle insert
-  // n is UTF-8 byte length; word matches must allow multi-byte kana readings.
+  // 動的計画法で単語をつなぎ、助詞の補完も試す。nはUTF-8のバイト数。
   const size_t n = reading.size();
   size_t max_word_bytes = 8;
   for (const auto& w : kWords)
@@ -578,7 +576,7 @@ std::vector<ReadingSolution> SolveReading(const std::string& reading) {
     if (base.size() > 4) base.resize(4);
     bool matched = false;
     for (size_t L = std::min(max_word_bytes, n - i); L >= 1; --L) {
-      // Only start matches at UTF-8 character boundaries
+      // 照合の開始位置をUTF-8の文字境界にそろえる。
       if (L < n - i) {
         unsigned char b = static_cast<unsigned char>(reading[i + L]);
         if ((b & 0xC0) == 0x80) continue;
@@ -628,7 +626,7 @@ std::vector<ReadingSolution> SolveReading(const std::string& reading) {
     return a.cost < b.cost;
   });
   if (sols.empty() && !reading.empty()) {
-    // partial fallback: raw kana as last resort handled by caller
+    // 残ったかなをそのまま返す処理は呼び出し元で行う。
   }
   return sols;
 }
@@ -636,7 +634,7 @@ std::vector<ReadingSolution> SolveReading(const std::string& reading) {
 double ScoreEnglish(const std::string& text) {
   if (text.empty()) return -4.0;
   std::string core = text;
-  // trim spaces/punct
+  // 前後の空白と句読点を除く。
   while (!core.empty() && (core.back() == ' ' || core.back() == '.' || core.back() == ',' ||
                            core.back() == '!' || core.back() == '?'))
     core.pop_back();
@@ -660,7 +658,7 @@ double ScoreEnglish(const std::string& text) {
     else if (hits == 1 && total >= 2) score += 0.8;
   } else {
     std::string low = ToLower(core);
-    // One-letter "words" (a/I) must not dominate mixed JA sentences.
+    // aやIの1文字で日本語の読みを分断しない。
     if (core.size() >= 2 && kEnWords.count(low)) score += 3.2;
     else if (core.size() == 1 && kEnWords.count(low)) score += 0.4;
     if (core.size() >= 2 && std::isupper(static_cast<unsigned char>(core[0])) &&
@@ -766,12 +764,12 @@ std::string ShrinkDotted(const std::string& text) {
       }
     }
     if (parts.back().size() >= 3 && parts.back() != last && kKnownExt.count(parts.back())) {
-      // kept short ext
+      // 短い拡張子を保持する。
     } else if (!kKnownExt.count(parts.back())) {
       parts.pop_back();
     }
   } else {
-    // pattern digits+letters e.g. 13deugokimasu
+    // 13deugokimasuのような数字に続く入力を分ける。
     size_t i = 0;
     while (i < last.size() && std::isdigit(static_cast<unsigned char>(last[i]))) ++i;
     if (i > 0 && i < last.size() && last.size() - i >= 4) {
@@ -804,9 +802,7 @@ std::vector<ProtectRegion> DetectIdent(const std::string& raw, const std::vector
     static const std::set<std::string> stop = {"no", "in", "on", "at", "to", "or",
                                                 "is", "be", "do", "go", "me", "we"};
     if (stop.count(low)) continue;
-    // In prose a romanized Japanese clause can run straight into a capitalized
-    // English word ("...sitekudasaiGithubde"). Treat the word as an island,
-    // rather than protecting the entire camel-case match as an identifier.
+    // ...sitekudasaiGithubdeではGithubだけを英語として扱い、前後の読みを変換する。
     const size_t upper = text.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ", 1);
     if (upper != std::string::npos) {
       bool romanizable = false;
@@ -815,8 +811,7 @@ std::vector<ProtectRegion> DetectIdent(const std::string& raw, const std::vector
         size_t word_end = upper + 1;
         while (word_end < text.size() &&
                std::islower(static_cast<unsigned char>(text[word_end]))) ++word_end;
-        // A known English word may be followed immediately by a Japanese
-        // particle. Protect only the dictionary word, leaving the particle.
+        // 既知の英単語だけを保護し、直後の助詞は日本語として処理する。
         for (size_t end_pos = word_end; end_pos > upper + 2; --end_pos) {
           if (kEnWords.count(ToLower(text.substr(upper, end_pos - upper)))) {
             idents.push_back({s + upper, s + end_pos, ProtectRegion::kIdent});
@@ -892,7 +887,7 @@ struct Seg {
   std::string reading;
   bool ok = true;
   double edit_cost = 0.0;
-  // AzooKey/Zenzai alternative surfaces for kJa (not used in total score mix).
+  // kJaに対するAzooKey/Zenzaiの候補。合計スコアには直接加算しない。
   std::vector<std::string> azo_surfaces;
 };
 
@@ -918,7 +913,7 @@ Seg BuildSeg(Kind kind, size_t s, size_t e, const std::string& raw) {
   bool ok = false;
   std::string kana = ConvertRomajiImpl(ja_text, &ok);
   if (!ok || kana.empty()) {
-    // Romaji typo repair: try common adjacent repairs on latin letters before giving up.
+    // 変換できない英字列に対し、隣接キーの打ち間違いを補正する。
     std::vector<std::string> edits{ja_text};
     static const std::pair<char, char> swaps[] = {
         {'i', 'e'}, {'e', 'i'}, {'u', 'i'}, {'a', 's'}, {'s', 'a'}, {'t', 'g'},
@@ -961,17 +956,13 @@ Seg BuildSeg(Kind kind, size_t s, size_t e, const std::string& raw) {
   }
   auto sols = SolveReading(kana);
   seg.reading = kana;
-  // The full dictionary is authoritative for correctly spelled readings.
-  // Local typo recovery is a fallback, not a forced top result.
+  // 正しく読める入力は本辞書を優先し、補正候補はその後に置く。
   if (ScoreEnglish(text) <= 1.0) {
-    // A missing moraic n in the conventional greeting is a common input typo.
-    // Query the main dictionary with the normalized reading; preserve raw input.
+    // 挨拶で抜けた「ん」を補って本辞書へ渡す。元の入力も候補に残す。
     auto lookup = kana;
     if (lookup == u8"こにちは" || lookup == u8"こにちわ") lookup = u8"こんにちは";
     auto azoo = AzookeyConvert(lookup, 24);
-    // A reading typed without digits should not prioritize "3階" over an
-    // ordinary word solely because the dictionary emits numeric shorthand
-    // first. Keep those candidates available after the nonnumeric spellings.
+    // 数字を含まない読みでは「3階」などの数字表記を一般語の後に置く。
     if (std::none_of(text.begin(), text.end(), [](unsigned char c) { return std::isdigit(c); })) {
       auto numeral_counter = [](const std::string& surface) {
         static const char* numerals[] = {u8"一", u8"二", u8"三", u8"四", u8"五", u8"六",
@@ -1018,13 +1009,10 @@ std::vector<std::vector<std::pair<Kind, std::pair<size_t, size_t>>>> RegionHyps(
   hyps.push_back({{Kind::kJa, {0, n}}});
   hyps.push_back({{Kind::kEn, {0, n}}});
 
-  // Fully-convertible romaji (tokyo, asanomade..., konnitiwa): never split
-  // mid-string on EN-word prefixes ("to|kyo", "a|sanoma") — that was
-  // manufacturing bogus EN|JA hyps that outranked the real JA conversion.
+  // 全体をローマ字として読める入力は、to|kyoやa|sanomaのように分割しない。
   bool whole_romaji = false;
   ConvertRomajiImpl(text, &whole_romaji);
-  // Still consider a known English prefix of at least four letters.
-  // java + wotukaimasu is both fully romanizable and genuinely mixed.
+  // java+wotukaimasuのように、文頭が4文字以上の既知の英単語なら分割も試す。
 
   std::vector<size_t> cuts;
   // TITLE_RE: ^[A-Z][a-z]+  → cut at end of leading capitalized word
@@ -1067,9 +1055,7 @@ std::vector<std::vector<std::pair<Kind, std::pair<size_t, size_t>>>> RegionHyps(
         std::isdigit(static_cast<unsigned char>(text[i - 1])))
       cuts.push_back(i);
     if (text[i - 1] == ' ' && text[i] != ' ') cuts.push_back(i);
-    // EN word prefix: cut after a leading English word only when the rest is
-    // not part of the same English word (he|llo) and the whole string is not
-    // itself an English word (hello). Enables Github|noripoji splits.
+    // 入力全体が英単語でなければ、文頭の英単語と後続の読みを分ける。
     {
       std::string prefix = text.substr(0, i);
       while (!prefix.empty() && prefix.back() == '.') prefix.pop_back();
@@ -1087,18 +1073,14 @@ std::vector<std::vector<std::pair<Kind, std::pair<size_t, size_t>>>> RegionHyps(
         if (!all_upper && !full_is_en && !continues_latin &&
             kEnWords.count(ToLower(prefix)))
           cuts.push_back(i);
-        // Mixed romaji: English word + Japanese romaji with no separator
-        // (Githubnoripoji) — remainder must look like romaji, not English.
-        // Require a multi-letter English prefix so "to|kyo"/"a|sanoma" cannot fire.
+        // Githubnoripojiのような入力を分ける。後半がローマ字として読めることを条件にする。
         else if (!all_upper && !full_is_en && continues_latin && prefix.size() >= 4 &&
                  kEnWords.count(ToLower(prefix))) {
           std::string rest = text.substr(i);
           bool rest_en_word = kEnWords.count(ToLower(rest)) != 0;
           bool rest_starts_vowel =
               !rest.empty() && std::strchr("aiueo", rest[0]) != nullptr;
-          // Japanese romaji rarely continues an English word with the same
-          // English spelling; require rest not to be an English word and to
-          // start with a consonant cluster typical of romaji (not "llo").
+          // 後半も英単語なら分割せず、ローマ字に特徴的な子音の並びを確認する。
           if (!rest_en_word && !rest_starts_vowel && rest.size() >= 2 &&
               !(rest.size() >= 3 && kEnWords.count(ToLower(rest.substr(0, 3)))))
             cuts.push_back(i);
@@ -1110,9 +1092,7 @@ std::vector<std::vector<std::pair<Kind, std::pair<size_t, size_t>>>> RegionHyps(
   cuts.erase(std::unique(cuts.begin(), cuts.end()), cuts.end());
   cuts.erase(std::remove_if(cuts.begin(), cuts.end(), [n](size_t c) { return c == 0 || c >= n; }),
              cuts.end());
-  // Hyphens and apostrophes belong to a romanized reading. Splitting at a
-  // long vowel used to give the fragments an extra language-score bonus and
-  // crowd the full dictionary word out of the candidate list.
+  // 長音と撥音を含む読みは、ハイフンやアポストロフィで分断しない。
   if (whole_romaji) {
     cuts.erase(std::remove_if(cuts.begin(), cuts.end(), [&](size_t c) {
       return text[c - 1] == '-' || text[c] == '-' || text[c - 1] == '\'' || text[c] == '\'';
@@ -1131,7 +1111,7 @@ std::vector<std::vector<std::pair<Kind, std::pair<size_t, size_t>>>> RegionHyps(
                       {Kind::kEn, {cuts[j], n}}});
     }
   }
-  // absorb trailing EN punct into JA
+  // 末尾の英語側の句読点を日本語区間に含める。
   static const std::string puncts = ".,!?;、。！？";
   for (auto& h : hyps) {
     std::vector<std::pair<Kind, std::pair<size_t, size_t>>> merged;
@@ -1169,16 +1149,14 @@ bool ConvertRomajiChecked(const std::string& raw, std::string* kana) {
 std::vector<Candidate> Decode(const DecodeInput& input) {
   std::vector<Candidate> out;
   if (input.raw_text.empty() || input.candidate_limit <= 0) return out;
-  // Preserve arbitrary paste/input intact while bounding expensive search.
+  // 探索上限を超えた入力は原文を返す。
   if (input.raw_text.size() > 512) {
     Candidate c; c.output_text = c.reading_text = input.raw_text; c.is_raw = true;
     return {c};
   }
   const std::string& raw = input.raw_text;
 
-  // Keep punctuation conversion independent of the word dictionary.
-  // The asynchronous worker must not replace a correct local preview of '.'
-  // with the unconverted raw character when the input is only punctuation.
+  // 句読点だけの入力も変換し、画面に出ている「。」を原文の「.」へ戻さない。
   if (input.field == "prose") {
     std::vector<std::string> fixed;
     std::string reading;
@@ -1311,7 +1289,7 @@ std::vector<Candidate> Decode(const DecodeInput& input) {
         if (s.surface != raw.substr(s.start, s.end - s.start)) jp_local += 1.2;
         if (HasKanjiUtf8(s.surface)) has_kanji = true;
         if (s.surface.size() >= 6) {
-          // polite ending bonus (utf8-safe approximate)
+          // 丁寧な文末へ加点する。
           if (s.surface.find("です") != std::string::npos ||
               s.surface.find("ます") != std::string::npos)
             jp_local += 0.4;
@@ -1349,7 +1327,7 @@ std::vector<Candidate> Decode(const DecodeInput& input) {
     if (has_kanji && ja_count) jp_score += 1.0;
     if (en_count && !ja_count) en_score += 0.5;
 
-    // glued EN penalty
+    // 英単語を不自然につなげた候補を減点する。
     double glued = 0.0;
     for (size_t i = 0; i < segs.size(); ++i) {
       if (segs[i].kind != Kind::kEn) continue;
@@ -1388,9 +1366,7 @@ std::vector<Candidate> Decode(const DecodeInput& input) {
     c.total = total;
     out.push_back(c);
 
-    // AzooKey/Zenzai segment alternatives: keep them strictly below the local
-    // solve for the same hypothesis (spec L99: no uncalibrated score mix).
-    // They enrich the candidate list without stealing calibrated top-1.
+    // 分割候補のスコアは未校正のため、同じ区間の主候補より下に置く。
     if (ja_count > 0) {
       int azo_added = 0;
       const int max_azoo = std::max(4, input.candidate_limit - 2);
@@ -1409,7 +1385,7 @@ std::vector<Candidate> Decode(const DecodeInput& input) {
           Candidate alt = c;
           alt.output_text = rebuilt;
           alt.jp_score = c.jp_score;
-          // Strictly rank under the local-solve primary for this hypothesis.
+          // 同じ区間の主候補より低い順位にする。
           alt.total = c.total - 0.01 - 0.001 * static_cast<double>(azo_added);
           out.push_back(std::move(alt));
           ++azo_added;
@@ -1495,6 +1471,7 @@ bool Session::ApplyCandidates(const DecodeInput& request, std::vector<Candidate>
       request.context_generation != context_generation_ ||
       request.interaction_generation != interaction_generation_) return false;
   candidates_ = std::move(candidates); selected_index_ = 0;
+  resolved_revision_ = revision_; resolved_context_ = context_generation_;
   awaiting_candidates_ = false;
   return true;
 }
@@ -1527,7 +1504,7 @@ void Session::PushCapped(std::vector<std::string>& log, std::string value) {
 
 void Session::Type(const std::string& text) {
   if (text.empty()) return;
-  // The TSF adapter commits a selected candidate before starting another input.
+  // TSF側で選択中の候補を確定してから、次の入力を始める。
   if (is_converting()) Commit(visible_text(), "continued_typing");
   raw_text_.insert(raw_cursor_, text); raw_cursor_ += text.size();
   ++revision_; BumpInteraction();
@@ -1611,6 +1588,7 @@ void Session::PressEnter() {
 }
 
 void Session::Reset() {
+  last_commit_learnable_ = false;
   BumpInteraction(); ++revision_;
   raw_text_.clear(); raw_cursor_ = 0; editing_ = false;
   candidates_.clear(); selected_index_ = 0; manual_lock_ = false;
@@ -1807,6 +1785,8 @@ std::string Session::visible_text() const {
 
 void Session::Commit(const std::string& text, const char* reason) {
   if (text.empty() && raw_text_.empty()) return;
+  last_commit_learnable_ = candidates_ready() && field_ == "prose" && selected_index_ >= 0 &&
+      selected_index_ < static_cast<int>(candidates_.size()) && !candidates_[selected_index_].is_raw;
   PushCapped(committed_history_, text + "|" + reason);
   PushCapped(output_log_, text);
   if (learning_allowed_ && !text.empty() && text != raw_text_) PushCapped(learning_log_, text);

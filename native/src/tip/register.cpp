@@ -58,7 +58,7 @@ HRESULT RegisterTextService() {
   hrCo = CoCreateInstance(CLSID_TF_InputProcessorProfiles, nullptr, CLSCTX_INPROC_SERVER,
                           IID_ITfInputProcessorProfiles, reinterpret_cast<void**>(&profiles));
   if (SUCCEEDED(hrCo) && profiles) {
-    // Register language profile for Japanese
+    // 日本語の入力プロファイルを登録する。
     LANGID lang = 0x0411;  // ja-JP
     hr = profiles->Register(kTextServiceClsid);
     if (SUCCEEDED(hr)) hr = profiles->AddLanguageProfile(kTextServiceClsid, lang, kProfileGuid, const_cast<LPWSTR>(L"Yomitsugu Preview"),
@@ -76,7 +76,7 @@ HRESULT RegisterTextService() {
   if (SUCCEEDED(hrCat) && catmgr) {
     if (SUCCEEDED(hr)) hr = catmgr->RegisterCategory(kTextServiceClsid, GUID_TFCAT_TIP_KEYBOARD, kTextServiceClsid);
     if (SUCCEEDED(hr)) hr = catmgr->RegisterCategory(kTextServiceClsid, GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER, kTextServiceClsid);
-    // Do not advertise UIElement/AppContainer contracts that are not implemented.
+    // 対応しているTSFカテゴリだけを登録する。
     catmgr->Release();
   } else if (FAILED(hrCat)) {
     hr = hrCat;

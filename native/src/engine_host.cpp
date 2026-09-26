@@ -3,6 +3,7 @@
 #include <cstdlib>
 #include "ime_engine.h"
 #include "user_dictionary.h"
+#include "learning_store.h"
 #include "nlohmann/json.hpp"
 
 static bool Transfer(HANDLE pipe, void* data, DWORD size, bool write) {
@@ -16,13 +17,15 @@ static bool Transfer(HANDLE pipe, void* data, DWORD size, bool write) {
   return true;
 }
 int wmain(int argc, wchar_t** argv) {
-  if (argc != 4 || wcscmp(argv[1], L"--pipe")) return 2;
+  if ((argc != 4 && argc != 6) || wcscmp(argv[1], L"--pipe") || (argc == 6 && wcscmp(argv[4], L"--profile"))) return 2;
   HANDLE input = reinterpret_cast<HANDLE>(_wcstoui64(argv[2], nullptr, 10));
   HANDLE output = reinterpret_cast<HANDLE>(_wcstoui64(argv[3], nullptr, 10));
   SetErrorMode(SEM_FAILCRITICALERRORS | SEM_NOGPFAULTERRORBOX);
   using nlohmann::json;
   ime::UserDictionary dictionary;
   auto dictionary_path = ime::UserDictionaryPath();
+  if (argc == 6) dictionary_path = std::filesystem::path(argv[5]) / L"user_dictionary.tsv";
+  ime::LearningStore learning(dictionary_path.parent_path());
   std::filesystem::file_time_type dictionary_time{};
   ime::UserDictionary public_dictionary;
   auto public_override = dictionary_path.parent_path() / L"public_dictionary.tsv";
@@ -31,6 +34,7 @@ int wmain(int argc, wchar_t** argv) {
   auto public_bundled = std::filesystem::path(executable_path).parent_path() / L"public_dictionary.tsv";
   std::filesystem::path public_loaded_path;
   std::filesystem::file_time_type public_time{};
+  ime::AzookeyEnsureReady();
   for (;;) {
     uint32_t size = 0;
     if (!Transfer(input, &size, sizeof(size), false)) return 0;
@@ -44,13 +48,18 @@ int wmain(int argc, wchar_t** argv) {
       request.raw_text = j.at("raw").get<std::string>(); request.left_context = j.value("left", "");
       request.right_context = j.value("right", ""); request.field = j.value("field", "prose");
       request.candidate_limit = (std::clamp)(j.value("limit", 8), 1, 16);
+      if (j.value("operation", "decode") == "learn") {
+        const bool saved = learning.Record(request, j.at("chosen").get<std::string>());
+        data = json({{"learned", saved}}).dump(); size = static_cast<uint32_t>(data.size());
+        if (!Transfer(output, &size, sizeof(size), true) || !Transfer(output, data.data(), size, true)) return 0;
+        continue;
+      }
       std::error_code ec;
       auto stamp = std::filesystem::last_write_time(dictionary_path, ec);
       if (!ec && stamp != dictionary_time) {
         std::string error;
         if (dictionary.Load(dictionary_path, &error)) {
-          // Upstream dynamic lookup is linear; keep large imports in our indexed
-          // dictionary and always offer explicit native candidates as well.
+          // 上流の動的辞書は線形検索のため、大量の登録語はC++側の索引で検索する。
           ime::AzookeySetUserDictionary(dictionary.size() <= 1000 ? dictionary.json() : "[]");
           dictionary_time = stamp;
         }
@@ -71,6 +80,7 @@ int wmain(int argc, wchar_t** argv) {
       }
       auto result = ime::Decode(request);
       public_dictionary.Apply(request, &result, true);
+      learning.Apply(request, &result);
       dictionary.Apply(request, &result);
       json response = json::array();
       for (const auto& c : result) response.push_back({{"text",c.output_text},{"reading",c.reading_text},{"raw",c.is_raw}});

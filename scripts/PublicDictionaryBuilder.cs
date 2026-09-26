@@ -1,4 +1,4 @@
-// Used by the Windows PowerShell 5.1 updater. No Python or extra runtime required.
+// 公開辞書更新スクリプトから呼び出す、辞書データの生成処理。
 using System;
 using System.Collections.Generic;
 using System.Text;
@@ -115,7 +115,7 @@ public static class YomitsuguDictionaryBuilder {
         }
         var output=new StringBuilder("# Sources: Mozc symbol.tsv (BSD-3-Clause); EDRDG EDICT2 (CC BY-SA 4.0)\n");
         foreach(var pair in rows) {
-            // Stable priority: abbreviations/symbols before supplemental spellings.
+            // 略語と記号を補助語より先に並べる。
             for(int pass=0;pass<2;pass++) foreach(var value in pair.Value) {
                 if((value.Pos=="補助語") != (pass==1)) continue;
                 output.Append(pair.Key).Append('\t').Append(value.Word).Append('\t').Append(value.Pos).Append('\n');

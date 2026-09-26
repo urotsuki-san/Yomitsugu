@@ -9,14 +9,29 @@
 #include <dwmapi.h>
 #include "dictionary_editor.h"
 #include "user_dictionary.h"
+#include "learning_store.h"
+#include "app_update.h"
+#include <memory>
 
 namespace {
 constexpr int kOpen = 101, kImport = 102, kUpdate = 103, kAbout = 104;
+constexpr int kLearning = 105, kClearLearning = 106;
+constexpr int kAppUpdate = 107;
 constexpr UINT kUpdateDone = WM_APP + 1;
+constexpr UINT kAppUpdateDone = WM_APP + 2;
+struct UpdateResult {
+  std::optional<ime::AppRelease> release;
+  std::filesystem::path installer;
+  bool failed = false, downloaded = false;
+};
 HWND window = nullptr, update_button = nullptr;
+HWND app_update_button = nullptr;
+HWND learning_checkbox = nullptr;
 bool updating = false;
+bool app_updating = false;
 std::filesystem::path base, user_dir;
 std::wstring public_status, user_status, status_note;
+std::wstring learning_status;
 HFONT title_font = nullptr, section_font = nullptr, body_font = nullptr, small_font = nullptr;
 
 COLORREF Ink() { return RGB(26, 43, 65); }
@@ -56,6 +71,8 @@ void RefreshStatus() {
   auto user_file = user_dir / L"user_dictionary.tsv";
   public_status = public_file == cached_public_file ? L"更新済み・利用可能" : L"同梱版を使用中";
   user_status = std::filesystem::exists(user_file, ec) ? L"登録済み" : L"未作成";
+  ime::LearningStore learning(user_dir);
+  learning_status = L"学習した候補: " + std::to_wstring(learning.size()) + L"件";
   status_note = L"入力文とユーザー辞書は外部に送信しません";
   RepaintStatus();
 }
@@ -108,7 +125,7 @@ void UpdateDictionary() {
   updating = true;
   EnableWindow(update_button, FALSE);
   public_status = L"公開辞書を更新中...";
-  status_note = L"固定URLから辞書だけを取得しています。完了までお待ちください";
+  status_note = L"辞書をダウンロードしています";
   RepaintStatus();
   const std::wstring args = L"-NoProfile -NonInteractive -ExecutionPolicy Bypass -File \"" + script.wstring() + L"\"";
   std::thread([launcher, args] {
@@ -117,9 +134,48 @@ void UpdateDictionary() {
     PostMessageW(window, kUpdateDone, static_cast<WPARAM>(code), 0);
   }).detach();
 }
+void CheckAppUpdate() {
+  if (app_updating) return;
+  app_updating = true;
+  EnableWindow(app_update_button,FALSE);
+  SetWindowTextW(window,L"Yomitsugu - 最新版を確認中...");
+  std::thread([] {
+    auto result=std::make_unique<UpdateResult>();
+    try { result->release=ime::CheckAppUpdate(); } catch (...) { result->failed=true; }
+    PostMessageW(window,kAppUpdateDone,0,reinterpret_cast<LPARAM>(result.release()));
+  }).detach();
+}
+void HandleAppUpdate(UpdateResult& result) {
+  app_updating=false;
+  EnableWindow(app_update_button,TRUE);
+  SetWindowTextW(window,L"Yomitsugu - 設定と辞書");
+  if (result.failed) {
+    MessageBoxW(window,result.downloaded ? L"更新ファイルを取得できませんでした。接続を確認して、もう一度お試しください。" :
+        L"最新版を確認できませんでした。接続を確認して、しばらくしてからお試しください。",L"Yomitsugu",MB_ICONERROR);
+    return;
+  }
+  if (result.downloaded) {
+    if (ime::LaunchAppUpdate(result.installer,*result.release)) DestroyWindow(window);
+    else MessageBoxW(window,L"インストーラーを開けませんでした。もう一度更新をお試しください。",L"Yomitsugu",MB_ICONERROR);
+    return;
+  }
+  if (!result.release) { MessageBoxW(window,L"お使いのYomitsuguは最新版です。",L"Yomitsugu",MB_OK); return; }
+  const auto& tag=result.release->tag;
+  const std::wstring prompt=std::wstring(tag.begin(),tag.end())+L" が公開されています。\r\nダウンロードして更新しますか？";
+  if (MessageBoxW(window,prompt.c_str(),L"Yomitsugu",MB_YESNO|MB_ICONQUESTION)!=IDYES) return;
+  app_updating=true;
+  EnableWindow(app_update_button,FALSE);
+  SetWindowTextW(window,L"Yomitsugu - 更新ファイルをダウンロード中...");
+  const auto release=*result.release;
+  std::thread([release] {
+    auto result=std::make_unique<UpdateResult>(); result->release=release; result->downloaded=true;
+    try { result->installer=ime::DownloadAppUpdate(release,user_dir/L"updates"); } catch (...) { result->failed=true; }
+    PostMessageW(window,kAppUpdateDone,0,reinterpret_cast<LPARAM>(result.release()));
+  }).detach();
+}
 void About() {
   MessageBoxW(window,
-    L"Yomitsugu 0.2.8-preview\r\nローマ字を続けて打ち、入力中に日本語の変換候補を提示するIMEです。\r\n\r\n公開辞書は、更新ボタンを押したときだけ Mozc と EDRDG の固定URLから取得します。入力した文字とユーザー辞書は送信しません。\r\n\r\nユーザー辞書は画面から登録・編集できます。TSVの取り込みにも対応します。詳細とライセンスはインストール先の README.md を参照してください。",
+    L"Yomitsugu 0.2.9-preview\r\nローマ字を打つそばから、日本語に変えるIMEです。\r\n\r\n変換はPC内で処理します。辞書はMozcとEDRDG、アプリの更新はGitHubから取得します。\r\n\r\n使い方はスタートメニューの「Yomitsugu → 使い方」、出典はインストール先の THIRD_PARTY.md を参照してください。",
     L"Yomitsugu", MB_OK);
 }
 void DrawAction(const DRAWITEMSTRUCT* item) {
@@ -137,9 +193,9 @@ void DrawAction(const DRAWITEMSTRUCT* item) {
   const wchar_t* mark = L"";
   switch (item->CtlID) {
     case kOpen: heading=L"ユーザー辞書を編集"; description=L"登録した単語を確認・修正"; mark=L"✎"; break;
-    case kImport: heading=L"TSV辞書を取り込む"; description=L"既存辞書を検証して置換"; mark=L"＋"; break;
+    case kImport: heading=L"TSV辞書を取り込む"; description=L"今の辞書をTSVの内容で置換"; mark=L"＋"; break;
     case kUpdate: heading=L"公開辞書を更新"; description=L"一般語・外来語・記号を取得"; mark=L"↻"; break;
-    case kAbout: heading=L"使い方とバージョン"; description=L"形式・出典・ライセンス"; mark=L"ⓘ"; break;
+    case kAppUpdate: heading=L"アプリを更新"; description=L"最新版を確認してインストール"; mark=L"↓"; break;
   }
   RECT icon_area{area.left+17, area.top+19, area.left+62, area.top+64};
   Panel(dc, icon_area, primary ? RGB(55, 139, 228) : RGB(236, 245, 255),
@@ -174,7 +230,7 @@ void DrawDashboard(HWND hwnd, HDC target) {
   RECT subtitle{108,78,610,110};
   Text(dc,body_font,RGB(201,220,238),L"ローマ字を続けて、日本語へ",subtitle,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   RECT version{594,35,690,66};
-  Text(dc,small_font,RGB(178,206,235),L"PREVIEW 0.2.8",version,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,small_font,RGB(178,206,235),L"PREVIEW 0.2.9",version,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
   RECT status_card{34,169,690,288};
   Panel(dc,status_card,RGB(255,255,255),RGB(222,230,240),18);
   RECT public_label{54,185,326,207}, public_value{54,210,330,243};
@@ -189,8 +245,13 @@ void DrawDashboard(HWND hwnd, HDC target) {
   Text(dc,small_font,RGB(58,126,124),status_note.c_str(),note,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   RECT section{35,302,685,335};
   Text(dc,section_font,Ink(),L"操作",section,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  RECT footer{35,541,690,570};
-  Text(dc,small_font,Muted(),L"公開辞書は更新ボタンを押したときだけ取得します",footer,
+  RECT learning_panel{34,544,690,650};
+  Panel(dc,learning_panel,RGB(255,255,255),RGB(222,230,240),18);
+  RECT learning_note{54,592,665,615}, learning_count{54,618,665,642};
+  Text(dc,small_font,Muted(),L"確定した候補を、次の変換で優先します。",learning_note,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,small_font,Muted(),learning_status.c_str(),learning_count,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  RECT footer{35,662,690,689};
+  Text(dc,small_font,Muted(),L"辞書と学習履歴はこのPCに保存されます",footer,
        DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   BitBlt(target,0,0,client.right,client.bottom,dc,0,0,SRCCOPY);
   SelectObject(dc,previous); DeleteObject(image); DeleteDC(dc);
@@ -208,13 +269,22 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) 
                                CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Yu Gothic UI");
       const struct { int id; const wchar_t* text; int x,y; } buttons[] = {
         {kOpen, L"ユーザー辞書を編集", 34,342}, {kImport, L"TSV辞書を取り込む", 370,342},
-        {kUpdate, L"公開辞書を更新", 34,440}, {kAbout, L"使い方とバージョン", 370,440}};
+        {kUpdate, L"公開辞書を更新", 34,440}, {kAppUpdate, L"アプリを更新", 370,440}};
       for (const auto& button : buttons) {
         auto control = CreateWindowW(L"BUTTON", button.text, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
                                     button.x, button.y, 320, 87, hwnd,
                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(button.id)), nullptr, nullptr);
         if (button.id == kUpdate) update_button = control;
+        if (button.id == kAppUpdate) app_update_button = control;
       }
+      learning_checkbox = CreateWindowW(L"BUTTON", L"候補の選択を学習する", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,
+          54,558,340,30,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLearning)),nullptr,nullptr);
+      auto clear_learning = CreateWindowW(L"BUTTON", L"学習履歴を削除", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
+          502,558,166,34,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearLearning)),nullptr,nullptr);
+      SendMessageW(learning_checkbox,WM_SETFONT,reinterpret_cast<WPARAM>(body_font),TRUE);
+      SendMessageW(clear_learning,WM_SETFONT,reinterpret_cast<WPARAM>(body_font),TRUE);
+      ime::LearningStore learning(user_dir);
+      SendMessageW(learning_checkbox,BM_SETCHECK,learning.enabled()?BST_CHECKED:BST_UNCHECKED,0);
       RefreshStatus();
       return 0;
     }
@@ -232,8 +302,28 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) 
         case kImport: ImportDictionary(); break;
         case kUpdate: UpdateDictionary(); break;
         case kAbout: About(); break;
+        case kAppUpdate: CheckAppUpdate(); break;
+        case kLearning: {
+          ime::LearningStore learning(user_dir);
+          const bool enabled = SendMessageW(learning_checkbox,BM_GETCHECK,0,0)==BST_CHECKED;
+          if (!learning.SetEnabled(enabled)) {
+            SendMessageW(learning_checkbox,BM_SETCHECK,learning.enabled()?BST_CHECKED:BST_UNCHECKED,0);
+            MessageBoxW(hwnd,L"設定を保存できませんでした。",L"Yomitsugu",MB_ICONERROR);
+          }
+          break;
+        }
+        case kClearLearning: {
+          if (MessageBoxW(hwnd,L"学習履歴を削除しますか？",L"Yomitsugu",MB_YESNO|MB_ICONQUESTION|MB_DEFBUTTON2)!=IDYES) break;
+          ime::LearningStore learning(user_dir);
+          if (!learning.Clear()) MessageBoxW(hwnd,L"学習履歴を削除できませんでした。",L"Yomitsugu",MB_ICONERROR);
+          RefreshStatus(); InvalidateRect(hwnd,nullptr,FALSE); break;
+        }
       }
       return 0;
+    case kAppUpdateDone: {
+      std::unique_ptr<UpdateResult> result(reinterpret_cast<UpdateResult*>(lparam));
+      HandleAppUpdate(*result); return 0;
+    }
     case kUpdateDone:
       updating = false; EnableWindow(update_button, TRUE);
       if (wparam == 0) {
@@ -246,7 +336,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) 
       }
       return 0;
     case WM_CLOSE:
-      if (updating) { MessageBoxW(hwnd, L"辞書更新の完了までお待ちください。", L"Yomitsugu", MB_OK); return 0; }
+      if (updating || app_updating) { MessageBoxW(hwnd, L"更新の完了までお待ちください。", L"Yomitsugu", MB_OK); return 0; }
       DestroyWindow(hwnd); return 0;
     case WM_DESTROY:
       for (auto font : {title_font,section_font,body_font,small_font}) if (font) DeleteObject(font);
@@ -268,13 +358,14 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
   cls.hbrBackground = nullptr;
   if (!RegisterClassW(&cls)) return 2;
   window = CreateWindowW(cls.lpszClassName, L"Yomitsugu - 設定と辞書", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                         CW_USEDEFAULT, CW_USEDEFAULT, 740, 625, nullptr, nullptr, instance, nullptr);
+                         CW_USEDEFAULT, CW_USEDEFAULT, 740, 745, nullptr, nullptr, instance, nullptr);
   if (!window) return 3;
   ShowWindow(window, show); UpdateWindow(window);
   if (wcscmp(command, L"--dictionary") == 0) OpenDictionary();
   else if (wcscmp(command, L"--import") == 0) ImportDictionary();
   else if (wcscmp(command, L"--update") == 0) UpdateDictionary();
   else if (wcscmp(command, L"--about") == 0) About();
+  else if (wcscmp(command, L"--app-update") == 0) CheckAppUpdate();
   MSG msg{};
   while (GetMessageW(&msg, nullptr, 0, 0) > 0) { TranslateMessage(&msg); DispatchMessageW(&msg); }
   return static_cast<int>(msg.wParam);

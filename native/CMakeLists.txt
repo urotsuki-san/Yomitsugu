@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(ime_mixed_native VERSION 0.2.8 LANGUAGES CXX RC)
+project(ime_mixed_native VERSION 0.2.9 LANGUAGES CXX RC)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -21,15 +21,22 @@ target_compile_definitions(ime_engine PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 add_library(ime_preview STATIC src/engine.cpp src/azookey_stub.cpp)
 target_include_directories(ime_preview PUBLIC include)
 add_executable(ime_engine_host src/engine_host.cpp)
-add_library(ime_dictionary STATIC src/user_dictionary.cpp)
+add_library(ime_dictionary STATIC src/user_dictionary.cpp src/learning_store.cpp)
 target_include_directories(ime_dictionary PUBLIC include PRIVATE third_party)
 target_compile_definitions(ime_dictionary PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(ime_dictionary PUBLIC shell32 ole32)
 add_executable(ime_dictionary_tool src/dictionary_tool.cpp)
 target_link_libraries(ime_dictionary_tool PRIVATE ime_dictionary ime_preview)
 add_executable(ime_settings WIN32 src/settings.cpp src/dictionary_editor.cpp)
+add_library(ime_update STATIC src/app_update.cpp)
+target_include_directories(ime_update PUBLIC include PRIVATE third_party)
+target_compile_definitions(ime_update PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+target_link_libraries(ime_update PUBLIC winhttp bcrypt shell32)
+add_executable(app_update_test tests/app_update_test.cpp)
+target_include_directories(app_update_test PRIVATE third_party)
+target_link_libraries(app_update_test PRIVATE ime_update)
 target_include_directories(ime_settings PRIVATE include)
-target_link_libraries(ime_settings PRIVATE ime_dictionary ime_preview comdlg32 comctl32 shell32 ole32)
+target_link_libraries(ime_settings PRIVATE ime_dictionary ime_preview ime_update comdlg32 comctl32 shell32 ole32)
 target_compile_definitions(ime_settings PRIVATE UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 add_executable(dictionary_editor_host WIN32 tests/dictionary_editor_host.cpp src/dictionary_editor.cpp)
 target_include_directories(dictionary_editor_host PRIVATE include)
@@ -82,11 +89,10 @@ target_sources(ime_dictionary_tool PRIVATE src/version.rc)
 target_sources(ime_settings PRIVATE src/version.rc)
 target_sources(ime_tray PRIVATE src/version.rc)
 
-# E2E: tip + driver to separate dir to avoid file lock on Release\ime_mixed_tip.dll
-# Unique output name each config regenerate avoids chrome/opencode holding previous dll
-set(E2E_OUT ${CMAKE_BINARY_DIR}/e2e_out_v12)
+# 使用中のDLLを上書きしないよう、TIPと入力試験を版別のフォルダーへ出力する。
+set(E2E_OUT ${CMAKE_BINARY_DIR}/e2e_out_v13)
 set_target_properties(ime_mixed_tip PROPERTIES
-  OUTPUT_NAME "ime_mixed_tip_v12"
+  OUTPUT_NAME "ime_mixed_tip_v13"
   RUNTIME_OUTPUT_DIRECTORY ${E2E_OUT}
   RUNTIME_OUTPUT_DIRECTORY_RELEASE ${E2E_OUT}
   RUNTIME_OUTPUT_DIRECTORY_DEBUG ${E2E_OUT}
@@ -115,9 +121,10 @@ set_target_properties(e2e_tip_tests PROPERTIES
 )
 
 enable_testing()
+add_test(NAME app_update_test COMMAND app_update_test)
 add_test(NAME engine_test COMMAND engine_test)
 add_test(NAME release_test COMMAND release_test)
-# Interactive/elevated E2E is intentionally opt-in, never an implicit ctest side effect.
+# デスクトップを操作するE2Eは、明示的に有効にした場合だけctestへ登録する。
 option(IME_ENABLE_INTERACTIVE_E2E "Enable registered TIP desktop tests" OFF)
 if(IME_ENABLE_INTERACTIVE_E2E)
   add_test(NAME e2e_tip_tests COMMAND e2e_tip_tests)

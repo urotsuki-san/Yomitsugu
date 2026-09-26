@@ -10,8 +10,7 @@
 namespace ime {
 std::filesystem::path PublicDictionaryPath(const std::filesystem::path& bundled,
                                            const std::filesystem::path& cached) {
-  // An old, symbol-only cache must not mask the expanded bundled dictionary
-  // after an upgrade. The updater writes versioned provenance alongside it.
+  // 古い記号辞書が新版を隠さないよう、出典ファイルの形式番号を確認する。
   std::error_code ec;
   if (!std::filesystem::exists(cached, ec)) return bundled;
   auto metadata = cached; metadata.replace_extension(L".sources.json");
@@ -99,8 +98,7 @@ bool UserDictionary::ApplyEnglish(const DecodeInput& input, std::vector<Candidat
   auto raw=input.raw_text, lower=raw;
   std::transform(lower.begin(),lower.end(),lower.begin(),[](unsigned char ch){return static_cast<char>(std::tolower(ch));});
   bool ok=false;auto reading=ConvertRomaji(raw,&ok);
-  // Loanwords may also be valid Japanese romaji (anime, sushi, karaoke).
-  // Preserve their Japanese interpretation when the reading is in the lexicon.
+  // animeやsushiのように日本語の読みでもある単語は、かな漢字変換を優先する。
   if(ok && entries_.count(reading)) return false;
   std::string output;
   bool exact=english_words_.count(lower)!=0;
@@ -146,10 +144,7 @@ void UserDictionary::ApplyExact(const DecodeInput& input, std::vector<Candidate>
   bool ok = false;
   auto reading = ConvertRomaji(input.raw_text, &ok);
   if (!ok && public_dictionary) {
-    // The public reading may be a prefix of a mixed Japanese/English sentence.
-    // ConvertRomaji preserves the Latin tail when it reaches a proper noun.
-    // Match a registered prefix before that boundary, then let the normal
-    // decoder handle the remaining raw input as a separate clause.
+    // 英語が続く場合も文頭の登録語を探し、残った入力を変換する。
     for (size_t end = reading.size(); end >= 3; --end) {
       if (end < reading.size() &&
           (static_cast<unsigned char>(reading[end]) & 0xc0) == 0x80) continue;
@@ -195,13 +190,12 @@ void UserDictionary::ApplyExact(const DecodeInput& input, std::vector<Candidate>
   const bool exact = it != entries_.end();
   std::string prefix, suffix;
   if (!exact) {
-    // Longest registered term at the earliest scalar boundary. Offer it as an
-    // alternative, preserving both surrounding spans; never auto-rewrite prose.
+    // 最初に見つかる最長の登録語を使い、前後の文字列を残した候補を作る。
     for (size_t start=0; start<reading.size() && it==entries_.end(); ++start) {
       if ((static_cast<unsigned char>(reading[start]) & 0xC0) == 0x80) continue;
       for (size_t end=reading.size(); end>start; --end) {
         if (end<reading.size() && (static_cast<unsigned char>(reading[end]) & 0xC0) == 0x80) continue;
-        // Single-kana registrations should not manufacture mid-word replacements.
+        // 1文字の読みは単語の途中に適用しない。
         if (end-start<6) continue;
         auto found=entries_.find(reading.substr(start,end-start));
         if (found != entries_.end()) { it=found; prefix=reading.substr(0,start); suffix=reading.substr(end); break; }
@@ -228,7 +222,7 @@ void UserDictionary::ApplyExact(const DecodeInput& input, std::vector<Candidate>
   }
   const bool preserve_primary = public_dictionary && exact &&
       ((symbol_only_readings_.count(reading) && !first_is_arrow) ||
-       (supplemental_readings_.count(reading) && !priority_readings_.count(reading)));
+       (supplemental_readings_.count(reading) && !priority_readings_.count(reading) && !first_is_arrow));
   if ((!exact || preserve_primary) && !candidates->empty()) {
     combined.push_back(candidates->front()); seen.insert(candidates->front().output_text);
   }
@@ -248,8 +242,7 @@ void UserDictionary::ApplyExact(const DecodeInput& input, std::vector<Candidate>
 }
 
 void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Candidate>* candidates) const {
-  // Query edits against the indexed lexicon first; never run the converter for
-  // hundreds of speculative readings. Original input remains selectable.
+  // 補正した読みを先に辞書で照合し、変換器に渡す候補を絞る。
   if (input.field != "prose" || input.candidate_limit < 2 || supplemental_readings_.empty()) return;
   auto raw = input.raw_text;
   std::string punctuation;
@@ -269,8 +262,7 @@ void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Cand
     auto it = readings.find(reading);
     if (it == readings.end() || cost < it->second.cost) readings[reading] = {cost, promote};
   };
-  // Moraic n before a vowel is ambiguous in casual romaji. Keep the ordinary
-  // ni/na/... interpretation in ConvertRomaji and ask the dictionary about n'i.
+  // niやnaの通常の読みを残し、nの後で区切る読みも辞書で照合する。
   for (size_t i=0; i<raw.size(); ++i) {
     if (raw[i]=='n' && i+1<raw.size() && std::strchr("aiueoy",raw[i+1]))
       try_raw(raw.substr(0,i+1)+"'"+raw.substr(i+1), 5, true);
@@ -285,21 +277,20 @@ void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Cand
       auto edited=raw; std::swap(edited[i],edited[i+1]); try_raw(edited, 12);
     }
     if (raw[i]=='-') {
-      // A long-vowel key can land one syllable too late/early while typing.
+      // 長音の打鍵が前後の音節へずれた場合を試す。
       auto without=raw.substr(0,i)+raw.substr(i+1);
       const auto begin=i>3?i-3:0;
       for(size_t j=begin;j<=std::min(without.size(),i+3);++j)
         if(j!=i) try_raw(without.substr(0,j)+"-"+without.substr(j),18);
     }
     try_raw(raw.substr(0,i)+raw.substr(i+1), 20);
-    // One mistyped key, including vowel errors; dictionary membership is the
-    // filter, not the first edit that happens to be romanizable.
+    // 1文字を置き換え、辞書にある読みだけを補正候補にする。
     for (char ch : std::string("abcdefghijklmnopqrstuvwxyz-")) {
       if (ch==raw[i]) continue;
       auto edited=raw; edited[i]=ch; try_raw(edited, 24);
     }
   }
-  // Missing key / long vowel. Bound the work by raw length and one edit.
+  // 1文字の抜けと長音を補う。探索は入力長と1回の編集に制限する。
   for (size_t i=0; i<=raw.size(); ++i)
     for (char ch : std::string("aiueon-"))
       try_raw(raw.substr(0,i)+ch+raw.substr(i), ch=='-' ? 12 : 24);
@@ -327,10 +318,10 @@ void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Cand
     if (a.repair.cost!=b.repair.cost) return a.repair.cost<b.repair.cost;
     return a.reading.size()>b.reading.size();
   });
-  // Strong normalization may lead, but ambiguous one-key edits stay suggestions.
+  // 表記の正規化は優先し、曖昧な1文字の補正は後続候補に置く。
   bool promote=matches.front().repair.promote &&
       (matches.size()==1 || matches[1].repair.cost>matches[0].repair.cost);
-  // A valid unedited dictionary prefix protects an already correct sentence.
+  // 元の文頭が辞書に一致する場合は、その読みを優先する。
   for (size_t end=original.size(); promote && end>=12; --end) {
     if (entries_.count(original.substr(0,end)) && end+6>=matches.front().reading.size()) {
       const auto suffix=original.substr(end);

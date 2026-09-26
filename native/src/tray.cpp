@@ -11,6 +11,7 @@ constexpr UINT kOpenDictionary = 102;
 constexpr UINT kImportDictionary = 103;
 constexpr UINT kUpdateDictionary = 104;
 constexpr UINT kAbout = 105;
+constexpr UINT kUpdateApp = 107;
 constexpr UINT kExit = 106;
 UINT taskbar_created = 0;
 HICON icon = nullptr;
@@ -49,6 +50,7 @@ void ShowMenu(HWND hwnd) {
   AppendMenuW(menu, MF_STRING, kOpenDictionary, L"ユーザー辞書を編集...");
   AppendMenuW(menu, MF_STRING, kImportDictionary, L"TSV辞書を取り込む...");
   AppendMenuW(menu, MF_STRING, kUpdateDictionary, L"公開辞書を更新...");
+  AppendMenuW(menu, MF_STRING, kUpdateApp, L"アプリを更新...");
   AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
   AppendMenuW(menu, MF_STRING, kAbout, L"バージョンと説明...");
   AppendMenuW(menu, MF_STRING, kExit, L"このアイコンを終了");
@@ -63,6 +65,7 @@ void ShowMenu(HWND hwnd) {
     case kOpenDictionary: Launch(L"--dictionary"); break;
     case kImportDictionary: Launch(L"--import"); break;
     case kUpdateDictionary: Launch(L"--update"); break;
+    case kUpdateApp: Launch(L"--app-update"); break;
     case kAbout: Launch(L"--about"); break;
     case kExit: DestroyWindow(hwnd); break;
   }

@@ -201,6 +201,12 @@ HRESULT TextService::ApplyState(TfEditCookie ec, ITfContext* pic, const ime::Dec
   if (!cancel) hr = EditSetText(ec, pic, text, finish ? text : next.caret_prefix());
   if (SUCCEEDED(hr) && (finish || cancel)) hr = EditEnd(ec, pic, !cancel);
   if (FAILED(hr)) return hr;
+  const bool selected_conversion = session_.candidates_ready() && session_.selected_index() >= 0 &&
+      session_.selected_index() < static_cast<int>(session_.candidates().size()) && !session_.candidates()[session_.selected_index()].is_raw;
+  if (finish && !cancel && session_.composing() && (next.last_commit_learnable() || selected_conversion)) {
+    auto learned = now; learned.field = field;
+    engine_channel_.Learn(learned, text);
+  }
   session_ = next;
   if (!finish && !cancel && composition_) {
     if (session_.decode_input().field != field) session_.set_field(field);
@@ -248,8 +254,7 @@ void TextService::ReleaseCompositionRef() {
 }
 void TextService::ResetSessionState() { session_.Reset(); caret_valid_ = false; cand_window_.Hide(); }
 
-void TextService::PollEngine() {
-  if (!activated_ || !foreground_ || restricted_ || !context_ || !session_.composing()) return;
+bool TextService::StartEngine() {
   if (!engine_channel_.running() && GetTickCount64() >= retry_engine_at_) {
     wchar_t path[32768]{}; GetModuleFileNameW(g_hInstance, path, 32768);
     auto exe = std::filesystem::path(path).parent_path() / L"engine" / L"ime_engine_host.exe";
@@ -257,6 +262,26 @@ void TextService::PollEngine() {
     retry_engine_at_ = GetTickCount64() + 10000;
     submitted_revision_ = -1;
   }
+  return engine_channel_.running();
+}
+void TextService::ResolveForCommit(ime::Session* next) {
+  if (next->candidates_ready() || !next->composing() || !StartEngine()) return;
+  engine_channel_.Submit(next->decode_input());
+  const auto deadline = GetTickCount64() + 3000;
+  while (engine_channel_.running() && GetTickCount64() < deadline && !next->candidates_ready()) {
+    ime::DecodeInput request; std::vector<ime::Candidate> candidates;
+    if (engine_channel_.Poll(&request, &candidates)) next->ApplyCandidates(request, std::move(candidates));
+    if (!next->candidates_ready()) Sleep(1);
+  }
+}
+void TextService::PollEngine() {
+  if (!activated_ || !foreground_ || restricted_ || !context_) return;
+  if (!session_.composing()) {
+    ime::DecodeInput ignored; std::vector<ime::Candidate> candidates;
+    engine_channel_.Poll(&ignored, &candidates);
+    return;
+  }
+  StartEngine();
   if (session_.revision() != submitted_revision_ || session_.interaction_generation() != submitted_interaction_ ||
       session_.context_generation() != submitted_context_) {
     engine_channel_.Submit(session_.decode_input());
@@ -331,6 +356,7 @@ TextService::~TextService() {
   if (lang_bar_mgr_ && input_mode_menu_) lang_bar_mgr_->RemoveItem(input_mode_menu_);
   if (input_mode_menu_) { input_mode_menu_->Release(); input_mode_menu_ = nullptr; }
   if (lang_bar_mgr_) { lang_bar_mgr_->Release(); lang_bar_mgr_ = nullptr; }
+  engine_channel_.FinishLearning(250);
   engine_channel_.Stop();
   ResetSessionState();
   ReleaseCompositionRef();
@@ -426,6 +452,7 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* ptim, TfClientId tid) {
     }
   }
   activated_ = true;
+  if (!restricted_) StartEngine();
   g_diagnostics.activate_success.fetch_add(1);
   TipLog("ActivateInternal done client=%ld", static_cast<long>(client_id_));
   return S_OK;
@@ -434,6 +461,7 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* ptim, TfClientId tid) {
 HRESULT TextService::Deactivate() {
   TipLog("Deactivate enter activated=%d", activated_ ? 1 : 0);
   if (!activated_) return S_OK;
+  engine_channel_.FinishLearning(250);
   engine_channel_.Stop();
   if (cand_window_.hwnd()) KillTimer(cand_window_.hwnd(), 1);
   if (composition_) {
@@ -441,7 +469,7 @@ HRESULT TextService::Deactivate() {
       EndComposition(context_, false);
     }
     if (composition_) {
-      // Last resort: avoid permanent sink pin if edit session could not run.
+      // 編集セッションを実行できなかった場合も通知先の参照を解放する。
       TipLog("Deactivate force-release composition");
       ReleaseCompositionRef();
     }
@@ -548,7 +576,8 @@ STDMETHODIMP TextService::OnPreservedKey(ITfContext*, REFGUID, BOOL* pfEaten) {
 STDMETHODIMP TextService::OnSetFocus(BOOL fForeground) {
   foreground_ = fForeground != FALSE;
   if (foreground_) retry_engine_at_ = 0;
-  if (!foreground_) { cand_window_.Hide(); engine_channel_.Stop(); submitted_revision_ = -1; }
+  if (!foreground_) { cand_window_.Hide(); engine_channel_.FinishLearning(250); engine_channel_.Stop(); submitted_revision_ = -1; }
+  else if (activated_ && !restricted_) StartEngine();
   return S_OK;
 }
 
@@ -582,7 +611,7 @@ HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, BOOL* eaten, bool te
   if (!operation && !candidate_key) {
     BYTE state[256]{}; wchar_t chars[8]{};
     if (!GetKeyboardState(state)) { g_diagnostics.gated_no_character.fetch_add(1); return S_OK; }
-    // Flag 4 prevents ToUnicodeEx from consuming/deleting a dead-key state.
+    // フラグ4でデッドキーの状態を保ったまま文字を取得する。
     auto layout = GetKeyboardLayout(0);
     int count = ToUnicodeEx(static_cast<UINT>(key), MapVirtualKeyExW(static_cast<UINT>(key), MAPVK_VK_TO_VSC, layout),
                             state, chars, 8, 4, layout);
@@ -612,7 +641,7 @@ HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, BOOL* eaten, bool te
   else if (key == VK_BACK) next.Backspace();
   else if (key == VK_DELETE) next.DeleteForward();
   else if (key == VK_ESCAPE) next.PressEscape();
-  else if (key == VK_RETURN) finish = true;
+  else if (key == VK_RETURN) { ResolveForCommit(&next); finish = true; }
   else if (key == VK_SPACE || key == VK_CONVERT) { if (shift) next.PressShiftSpace(); else next.PressSpace(); }
   else if (key == VK_LEFT) next.PressLeft();
   else if (key == VK_RIGHT) next.PressRight();
@@ -627,8 +656,7 @@ HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, BOOL* eaten, bool te
   HRESULT hr = RequestState(pic, next, text, finish, cancel);
   if (hr == S_OK) g_diagnostics.state_success.fetch_add(1);
   else g_diagnostics.state_failure.fetch_add(1);
-  // Preserve the prior session on failure. Existing compositions must not be
-  // accidentally deleted/committed by passing the failed IME command to the app.
+  // 編集失敗時は元の状態を維持し、処理したキーをアプリへ重ねて渡さない。
   *eaten = (hr == S_OK || composing) ? TRUE : FALSE;
   return S_OK;
 }
@@ -682,7 +710,7 @@ STDMETHODIMP TextService::OnCompositionTerminated(TfEditCookie, ITfComposition* 
   TipLog("OnCompositionTerminated comp=%p ours=%p", static_cast<void*>(pComp),
          static_cast<void*>(composition_));
   if (composition_ && pComp && composition_ != pComp) {
-    // Not our composition — do not mutate local state.
+    // 他のIMEの未確定文字列なら、このセッションは変更しない。
     return S_OK;
   }
   ReleaseCompositionRef();

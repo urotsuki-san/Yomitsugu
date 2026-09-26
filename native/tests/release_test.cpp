@@ -7,6 +7,7 @@
 #include "ime_engine.h"
 #include "engine_channel.h"
 #include "user_dictionary.h"
+#include "learning_store.h"
 namespace {
 int failures = 0, checks = 0;
 void Check(bool pass, const char* name) { ++checks; if (!pass) ++failures; std::cout << (pass ? "PASS " : "FAIL ") << name << '\n'; }
@@ -85,6 +86,47 @@ int wmain(int argc, wchar_t** argv) {
     Check(!dict.Load(path,&error)&&dict.size()==1,"invalid import preserves previous dictionary");
     std::filesystem::remove(path); }
   Check(AzookeyEnsureReady(),"real dictionary required (no soft skip)");
+  {
+    auto directory = std::filesystem::temp_directory_path() / (L"yomitsugu_learning_" + std::to_wstring(GetCurrentProcessId()) + L"_" + std::to_wstring(GetTickCount64()));
+    LearningStore learning(directory);
+    DecodeInput input; input.raw_text="hashi";
+    auto base=[] { Candidate first; first.output_text=u8"橋"; Candidate second; second.output_text=u8"端"; return std::vector<Candidate>{first,second}; };
+    Check(learning.enabled(),"learning enabled for a new profile");
+    Check(learning.Record(input,u8"端"),"committed candidate saved");
+    LearningStore reopened(directory); auto list=base(); reopened.Apply(input,&list);
+    Check(list.front().output_text==u8"端"&&Contains(list,"hashi"),"learning persists and keeps original input available");
+    Check(learning.Record(input,u8"橋")&&learning.Record(input,u8"橋"),"repeated selections counted");
+    list=base(); reopened.Apply(input,&list);
+    Check(list.front().output_text==u8"橋","frequent selection wins after another process updates history");
+    Check(learning.Record(input,u8"端"),"recent selection counted");
+    list=base(); reopened.Apply(input,&list);
+    Check(list.front().output_text==u8"端","recent selection breaks equal counts");
+    Check(learning.SetEnabled(false)&&!reopened.enabled(),"learning setting shared between instances");
+    Check(!learning.Record(input,u8"箸"),"disabled learning does not save");
+    list=base(); reopened.Apply(input,&list);
+    Check(list.front().output_text==u8"橋","disabled learning does not reorder candidates");
+    Check(learning.SetEnabled(true),"learning can be enabled again");
+    for (const auto& field:{"password","identifier","code","url","email"}) {
+      input.field=field;
+      Check(!learning.Record(input,u8"端"),"protected input excluded from learning");
+    }
+    input.field="prose";input.raw_text="https://example.com";
+    Check(!learning.Record(input,u8"端"),"URL text excluded from learning");
+    input.raw_text="hashi";
+    Check(!learning.Record(input,"hashi"),"literal input excluded from learning");
+    Check(learning.Clear()&&reopened.size()==0,"history deletion reaches other instances");
+    {std::ofstream stream(directory/L"learning.json");stream<<"{\"version\":\"invalid\",\"entries\":[]}";}
+    list=base(); reopened.Apply(input,&list);
+    Check(list.front().output_text==u8"橋","invalid history falls back to dictionary order");
+    std::filesystem::remove(directory/L"learning.json");std::filesystem::remove(directory/L"settings.json");std::filesystem::remove(directory);
+    auto session=Preview();session.Type("insuto-ru");
+    Check(!session.candidates_ready(),"typing distinguishes provisional display from conversion results");
+    Candidate candidate;candidate.output_text=u8"インストール";
+    Check(session.ApplyCandidates(session.decode_input(),{candidate})&&session.candidates_ready(),"matching engine result marks candidates ready");
+    session.PressEnter();
+    Check(session.last_commit_learnable(),"resolved conversion can be learned after commit");
+    session.Type("ha");Check(!session.candidates_ready(),"next input cannot reuse previous readiness");
+  }
   { const char* words[]={"software","hardware","online","version","computer","folder","password","server","database"};
     for(auto raw:words) { DecodeInput in;in.raw_text=raw;auto list=DecodeWithPublic(in);
       Check(!list.empty()&&list.front().output_text==raw,"dictionary English spelling remains literal"); }
@@ -159,6 +201,7 @@ int wmain(int argc, wchar_t** argv) {
     auto candidates=Decode(in);
     Check(!candidates.empty()&&candidates[0].output_text==u8"寒くなってきましたね","user sentence first candidate");
     in.raw_text="yajirushi"; Check(Contains(DecodeWithPublic(in),u8"→"),"arrow candidate from romaji public dictionary");
+    Check(DecodeWithPublic(in).front().output_text==u8"→","arrow stays first when general dictionary also contains its name");
     in.raw_text=u8"やじるし"; Check(Contains(DecodeWithPublic(in),u8"→"),"arrow candidate from kana public dictionary");
     in.raw_text="saikilyou"; candidates=Decode(in);
     Check(!candidates.empty()&&candidates[0].output_text==u8"最強","saikilyou first candidate is intended kanji");
@@ -207,7 +250,8 @@ int wmain(int argc, wchar_t** argv) {
   { wchar_t module[32768]{}; GetModuleFileNameW(nullptr,module,32768);
     auto host=std::filesystem::path(module).parent_path()/L"ime_engine_host.exe";
     if (argc == 2) host = argv[1];
-    EngineChannel channel; Check(channel.Start(host.wstring()),"isolated engine starts with private pipes");
+    const auto profile=std::filesystem::temp_directory_path()/(L"yomitsugu_worker_"+std::to_wstring(GetCurrentProcessId())+L"_"+std::to_wstring(GetTickCount64()));
+    EngineChannel channel; Check(channel.Start(host.wstring(),profile.wstring()),"isolated engine starts with private pipes");
     DecodeInput request; request.raw_text="toshokan"; channel.Submit(request);
     bool done=false; std::vector<Candidate> list; DecodeInput reply;
     auto until=GetTickCount64()+30000;
@@ -218,7 +262,14 @@ int wmain(int argc, wchar_t** argv) {
     while(GetTickCount64()<until&&channel.running()) { if(channel.Poll(&reply,&list)){done=true;break;} Sleep(5); }
     Check(done && reply.raw_text==request.raw_text && !list.empty() && list.front().output_text=="README",
           "public dictionary round trip through worker");
+    request.raw_text="sannkai"; channel.Learn(request,u8"散会"); channel.FinishLearning(5000);
+    channel.Stop();
+    Check(channel.Start(host.wstring(),profile.wstring()),"worker restarts with saved learning");
+    channel.Submit(request);done=false;list.clear();until=GetTickCount64()+30000;
+    while(GetTickCount64()<until&&channel.running()){if(channel.Poll(&reply,&list)){done=true;break;}Sleep(5);}
+    Check(done&&!list.empty()&&list.front().output_text==u8"散会","chosen candidate survives worker restart");
     channel.Stop(); Check(!channel.running(),"owned worker stops without touching applications");
+    std::filesystem::remove(profile/L"learning.json");std::filesystem::remove(profile/L"settings.json");std::filesystem::remove(profile);
     Check(!channel.Start((host.parent_path()/L"missing_engine.exe").wstring()),"missing worker degrades safely"); }
   { auto s=Preview(); std::vector<double> timings;
     for(char c:std::string("ashitahakaishadeatarashiikikakuwosoudanshimasu")) {

@@ -1,4 +1,4 @@
-$ErrorActionPreference = 'Stop'
+﻿$ErrorActionPreference = 'Stop'
 $taskRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $taskCandidates = @(
   (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
@@ -21,7 +21,7 @@ if ($LASTEXITCODE -ne 0) {
   throw 'Inno Setup compilation failed.'
 }
 Get-Content -LiteralPath $taskCompileLog -Tail 5
-$taskInstaller = Join-Path $taskRoot 'dist/installer/Yomitsugu-0.2.8-preview-x64-setup.exe'
+$taskInstaller = Join-Path $taskRoot 'dist/installer/Yomitsugu-0.2.9-preview-x64-setup.exe'
 if (-not (Test-Path -LiteralPath $taskInstaller)) { throw 'Installer output missing.' }
 Get-Item -LiteralPath $taskInstaller | Select-Object FullName,Length
 Write-Output "SHA256=$((Get-FileHash -LiteralPath $taskInstaller -Algorithm SHA256).Hash)"

@@ -94,13 +94,15 @@ class TextService : public ITfTextInputProcessorEx,
   STDMETHODIMP EnumDisplayAttributeInfo(IEnumTfDisplayAttributeInfo** ppEnum) override;
   STDMETHODIMP GetDisplayAttributeInfo(REFGUID guid, ITfDisplayAttributeInfo** ppInfo) override;
 
-  // Edit-session helpers (called on UI thread)
+  // UIスレッドから呼ぶ編集セッション処理。
   HRESULT EditStart(TfEditCookie ec, ITfContext* pic);
   HRESULT EditSetText(TfEditCookie ec, ITfContext* pic, const std::string& utf8, const std::string& caret);
   HRESULT EditEnd(TfEditCookie ec, ITfContext* pic, bool commit);
   HRESULT ApplyState(TfEditCookie ec, ITfContext* pic, const ime::DecodeInput& expected,
                     const ime::Session& next, const std::string& text, bool finish, bool cancel);
   void PollEngine();
+  bool StartEngine();
+  void ResolveForCommit(ime::Session* next);
   void ClickCandidate(int index);
   TfClientId client_id() const { return client_id_; }
   TfGuidAtom display_attr_atom() const { return display_attr_atom_; }

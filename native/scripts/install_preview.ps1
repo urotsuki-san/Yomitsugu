@@ -15,14 +15,14 @@ foreach ($taskEntry in $taskManifest.files) {
     }
 }
 $taskInstallRoot = Join-Path $env:ProgramFiles 'ImeMixed'
-$taskTarget = Join-Path $taskInstallRoot '0.2.8-preview'
+$taskTarget = Join-Path $taskInstallRoot '0.2.9-preview'
 if (Test-Path -LiteralPath $taskTarget) { throw 'Version already installed. Unregister it and use a new version directory; do not overwrite a loaded TIP.' }
 $taskClsidKey = 'Registry::HKEY_CLASSES_ROOT\CLSID\{8F3A1C2E-4B5D-4E6F-8A9B-0C1D2E3F4A5B}\InProcServer32'
 $taskPrevious = $null
 if (Test-Path -LiteralPath $taskClsidKey) { $taskPrevious = (Get-Item -LiteralPath $taskClsidKey).GetValue('') }
 New-Item -ItemType Directory -Path $taskInstallRoot -Force | Out-Null
 Copy-Item -LiteralPath $taskPackage -Destination $taskTarget -Recurse
-$taskDll = Join-Path $taskTarget 'ime_mixed_tip_v12.dll'
+$taskDll = Join-Path $taskTarget 'ime_mixed_tip_v13.dll'
 $taskReg = Start-Process -FilePath "$env:SystemRoot/System32/regsvr32.exe" -ArgumentList '/s',"`"$taskDll`"" -WindowStyle Hidden -Wait -PassThru
 if ($taskReg.ExitCode -ne 0) {
     if ($taskPrevious -and (Test-Path -LiteralPath $taskPrevious)) {

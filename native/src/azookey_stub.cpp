@@ -1,5 +1,5 @@
 #include "azookey_bridge.h"
-// The in-process TIP must never load Swift, its bundles, or the language model.
+// Swift・辞書・モデルは専用の変換プロセスで読み込む。
 namespace ime {
 bool AzookeyEnsureReady() { return false; }
 bool AzookeyAvailable() { return false; }

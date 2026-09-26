@@ -10,6 +10,7 @@ constexpr UINT kSettings = 1;
 constexpr UINT kDictionary = 2;
 constexpr UINT kUpdate = 3;
 constexpr UINT kAbout = 4;
+constexpr UINT kAppUpdate = 5;
 
 HRESULT Add(ITfMenu* menu, UINT id, const wchar_t* label) {
   return menu->AddMenuItem(id, 0, nullptr, nullptr, label,
@@ -73,7 +74,8 @@ STDMETHODIMP InputModeMenu::InitMenu(ITfMenu* menu) {
   HRESULT hr = Add(menu, kSettings, L"設定と辞書の管理...");
   if (SUCCEEDED(hr)) hr = Add(menu, kDictionary, L"ユーザー辞書を開く...");
   if (SUCCEEDED(hr)) hr = Add(menu, kUpdate, L"公開辞書を更新...");
-  if (SUCCEEDED(hr)) hr = Add(menu, kAbout, L"バージョンと更新方法...");
+  if (SUCCEEDED(hr)) hr = Add(menu, kAppUpdate, L"アプリを更新...");
+  if (SUCCEEDED(hr)) hr = Add(menu, kAbout, L"バージョンと説明...");
   return hr;
 }
 STDMETHODIMP InputModeMenu::OnMenuSelect(UINT id) {
@@ -81,6 +83,7 @@ STDMETHODIMP InputModeMenu::OnMenuSelect(UINT id) {
     case kSettings: LaunchSettings(L""); break;
     case kDictionary: LaunchSettings(L"--dictionary"); break;
     case kUpdate: LaunchSettings(L"--update"); break;
+    case kAppUpdate: LaunchSettings(L"--app-update"); break;
     case kAbout: LaunchSettings(L"--about"); break;
     default: return E_INVALIDARG;
   }

@@ -1,4 +1,4 @@
-﻿#include <windows.h>
+#include <windows.h>
 #include <msctf.h>
 #include <ctfutb.h>
 #include <ctffunc.h>
@@ -26,6 +26,14 @@ static bool g_activate_profile = true;
 static int g_fail = 0;
 static int g_pass = 0;
 
+static std::string Utf8(const wchar_t* text) {
+  if (!text || !*text) return {};
+  const int size=WideCharToMultiByte(CP_UTF8,0,text,-1,nullptr,0,nullptr,nullptr);
+  std::string value(size, '\0');
+  WideCharToMultiByte(CP_UTF8,0,text,-1,value.data(),size,nullptr,nullptr);
+  value.resize(size-1); return value;
+}
+
 static void Expect(bool cond, const char* name, const std::string& detail = "") {
   if (cond) {
     std::printf("[PASS] %s\n", name);
@@ -38,7 +46,7 @@ static void Expect(bool cond, const char* name, const std::string& detail = "") 
 }
 
 static void PrintTipDiagnostics(const char* phase) {
-  HMODULE module = GetModuleHandleW(L"ime_mixed_tip_v12.dll");
+  HMODULE module = GetModuleHandleW(L"ime_mixed_tip_v13.dll");
   auto get = module ? reinterpret_cast<ImeTipGetDiagnosticsFn>(
                           GetProcAddress(module, "ImeTipGetDiagnostics")) : nullptr;
   TipDiagnostics d{};
@@ -360,6 +368,52 @@ int main(int argc, char** argv) {
   }
   Pump(100);
   FocusEdit();
+  if (argc == 2 && std::strcmp(argv[1], "--learning-inputs") == 0) {
+    ClearBetween(); RunKeys("sannkai"); Pump(1500);
+    const auto original=GetEditText();
+    SendVk(VK_SPACE); SendVk(VK_DOWN); Pump(100);
+    const auto selected=GetEditText();
+    Expect(!selected.empty() && selected!=original, "L01 select an alternative candidate");
+    SendVk(VK_RETURN); Pump(700);
+    Expect(GetEditText()==selected,"L02 commit selected candidate");
+    ClearBetween(); RunKeys("sannkai"); Pump(1500); SendVk(VK_RETURN);
+    Expect(GetEditText()==selected,"L03 learned choice leads the next conversion");
+    DestroyWindow(g_hMain);
+    tsf_thread_mgr->Deactivate(); tsf_thread_mgr->Release(); CoUninitialize();
+    std::printf("E2E done pass=%d fail=%d\n",g_pass,g_fail);
+    return g_fail?1:0;
+  }
+  if (argc == 2 && std::strcmp(argv[1], "--reported-inputs") == 0) {
+    const std::pair<const char*, const wchar_t*> reported[] = {
+      {"insuto-ru", L"インストール"}, {"innsuto-ru", L"インストール"},
+      {"aninsuto-ru", L"アンインストール"}, {"anninsuto-ru", L"アンインストール"},
+      {"softwarewokoushinsuru", L"softwareを更新する"}
+    };
+    for (const auto& item : reported) {
+      ClearBetween();
+      RunKeys(item.first);
+      const auto deadline = GetTickCount64() + 4000;
+      while (GetTickCount64() < deadline && GetEditText() != item.second) Pump(30);
+      SendVk(VK_RETURN);
+      auto text = GetEditText();
+      std::printf("REPORTED %s => [%s]\n", item.first, Utf8(text.c_str()).c_str());
+      Expect(text == item.second, item.first);
+    }
+    for (const auto& item : reported) {
+      ClearBetween();
+      RunKeys(item.first);
+      SendVk(VK_RETURN);
+      Pump(1000);
+      auto text = GetEditText();
+      std::printf("QUICK_ENTER %s => [%s]\n", item.first, Utf8(text.c_str()).c_str());
+      Expect(text == item.second, "Enter immediately after typing");
+    }
+    PrintTipDiagnostics("reported_inputs");
+    DestroyWindow(g_hMain);
+    tsf_thread_mgr->Deactivate(); tsf_thread_mgr->Release(); CoUninitialize();
+    std::printf("E2E done pass=%d fail=%d\n", g_pass, g_fail);
+    return g_fail ? 1 : 0;
+  }
   if (argc == 2 && std::strcmp(argv[1], "--demo") == 0) {
     SetWindowTextW(g_hMain, L"Yomitsugu input demo (Rich Edit)");
     SetWindowPos(g_hMain, HWND_TOP, 120, 100, 700, 360, SWP_SHOWWINDOW);
@@ -380,7 +434,7 @@ int main(int argc, char** argv) {
               GetForegroundWindow() == g_hMain ? 1 : 0,
               GetFocus() == g_hEdit ? 1 : 0,
               LOWORD(reinterpret_cast<ULONG_PTR>(GetKeyboardLayout(0))));
-  std::printf("E2E TIP module_loaded=%d\n", GetModuleHandleW(L"ime_mixed_tip_v12.dll") ? 1 : 0);
+  std::printf("E2E TIP module_loaded=%d\n", GetModuleHandleW(L"ime_mixed_tip_v13.dll") ? 1 : 0);
 
   // The Windows input indicator must expose this TIP's あ menu item.
   {
@@ -394,8 +448,8 @@ int main(int argc, char** argv) {
     HRESULT button_hr = item ? item->QueryInterface(IID_ITfLangBarItemButton,
         reinterpret_cast<void**>(&button)) : E_NOINTERFACE;
     HRESULT text_hr = button ? button->GetText(&label) : E_NOINTERFACE;
-    std::printf("LANGBAR mgr=0x%08lx item=0x%08lx button=0x%08lx text=0x%08lx label=%ls\n",
-                manager_hr, item_hr, button_hr, text_hr, label ? label : L"");
+    std::printf("LANGBAR mgr=0x%08lx item=0x%08lx button=0x%08lx text=0x%08lx label=%s\n",
+                manager_hr, item_hr, button_hr, text_hr, Utf8(label ? label : L"").c_str());
     const bool available = SUCCEEDED(manager_hr) && SUCCEEDED(item_hr) && SUCCEEDED(button_hr) &&
                            SUCCEEDED(text_hr) && label && wcscmp(label, L"あ") == 0;
     Expect(available, "T00 input indicator exposes hiragana menu item");
@@ -426,7 +480,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN);
     Pump(120);
     std::wstring t = GetEditText();
-    std::printf("T01 text=[%ls] len=%zu\n", t.c_str(), t.size());
+    std::printf("T01 text=[%s] len=%zu\n", Utf8(t.c_str()).c_str(), t.size());
     Expect(!t.empty(), "T01 enter commits non-empty");
     // must be able to continue - no stuck composition: type again
     RunKeys("a");
@@ -434,7 +488,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN);
     Pump(100);
     std::wstring t2 = GetEditText();
-    std::printf("T01b text=[%ls]\n", t2.c_str());
+    std::printf("T01b text=[%s]\n", Utf8(t2.c_str()).c_str());
     Expect(t2.size() > t.size(), "T01 second cycle appends (no stuck composition)");
   }
 
@@ -447,7 +501,7 @@ int main(int argc, char** argv) {
     SendVk(VK_ESCAPE);
     Pump(150);
     std::wstring t = GetEditText();
-    std::printf("T02 text=[%ls] len=%zu\n", t.c_str(), t.size());
+    std::printf("T02 text=[%s] len=%zu\n", Utf8(t.c_str()).c_str(), t.size());
     Expect(t.empty(), "T02 escape cancels", std::to_string(t.size()));
     // after cancel, re-assert focus then type
     FocusEdit();
@@ -456,7 +510,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN);
     Pump(150);
     std::wstring t2 = GetEditText();
-    std::printf("T02b text=[%ls]\n", t2.c_str());
+    std::printf("T02b text=[%s]\n", Utf8(t2.c_str()).c_str());
     Expect(!t2.empty(), "T02 type after escape works");
   }
 
@@ -472,7 +526,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN);
     Pump(150);
     std::wstring t = GetEditText();
-    std::printf("T03 text=[%ls] len=%zu\n", t.c_str(), t.size());
+    std::printf("T03 text=[%s] len=%zu\n", Utf8(t.c_str()).c_str(), t.size());
     Expect(!t.empty(), "T03 space+enter commits");
     // composition must be finished - direct latin without conversion path should still work
     ClearBetween();
@@ -481,7 +535,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN);
     Pump(100);
     std::wstring t2 = GetEditText();
-    std::printf("T03b text=[%ls]\n", t2.c_str());
+    std::printf("T03b text=[%s]\n", Utf8(t2.c_str()).c_str());
     Expect(!t2.empty(), "T03 subsequent typing works");
   }
 
@@ -496,7 +550,7 @@ int main(int argc, char** argv) {
     SendVk(VK_SPACE);
     Pump(80);
     std::wstring t = GetEditText();
-    std::printf("T04 text=[%ls] len=%zu\n", t.c_str(), t.size());
+    std::printf("T04 text=[%s] len=%zu\n", Utf8(t.c_str()).c_str(), t.size());
     // Space when not composing should appear in edit OR be harmless; must not hang
     // Then type letters and commit
     RunKeys("abc");
@@ -504,7 +558,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN);
     Pump(100);
     std::wstring t2 = GetEditText();
-    std::printf("T04b text=[%ls]\n", t2.c_str());
+    std::printf("T04b text=[%s]\n", Utf8(t2.c_str()).c_str());
     Expect(!t2.empty(), "T04 input after idle space works");
   }
 
@@ -540,7 +594,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN);
     Pump(100);
     std::wstring t = GetEditText();
-    std::printf("T06 text=[%ls]\n", t.c_str());
+    std::printf("T06 text=[%s]\n", Utf8(t.c_str()).c_str());
     Expect(!t.empty(), "T06 backspace+enter commits");
     // still alive
     ClearEdit();
@@ -562,7 +616,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN);
     Pump(100);
     std::wstring t = GetEditText();
-    std::printf("T07 text=[%ls]\n", t.c_str());
+    std::printf("T07 text=[%s]\n", Utf8(t.c_str()).c_str());
     Expect(!t.empty(), "T07 english+space+enter commits");
   }
 
@@ -589,7 +643,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN);
     Pump(120);
     std::wstring t = GetEditText();
-    std::printf("T09 text=[%ls]\n", t.c_str());
+    std::printf("T09 text=[%s]\n", Utf8(t.c_str()).c_str());
     Expect(!t.empty(), "T09 F7+enter commits");
     // F-keys must not hang: type again after
     ClearEdit();
@@ -613,7 +667,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN);
     Pump(120);
     std::wstring t = GetEditText();
-    std::printf("T10 text=[%ls]\n", t.c_str());
+    std::printf("T10 text=[%s]\n", Utf8(t.c_str()).c_str());
     Expect(!t.empty(), "T10 digit-select+enter commits");
   }
 
@@ -632,7 +686,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN);
     Pump(120);
     std::wstring t = GetEditText();
-    std::printf("T11 text=[%ls]\n", t.c_str());
+    std::printf("T11 text=[%s]\n", Utf8(t.c_str()).c_str());
     Expect(!t.empty(), "T11 down/up+enter commits");
   }
 
@@ -651,7 +705,7 @@ int main(int argc, char** argv) {
     SendVk(VK_RETURN);
     Pump(120);
     std::wstring t = GetEditText();
-    std::printf("T12 text=[%ls]\n", t.c_str());
+    std::printf("T12 text=[%s]\n", Utf8(t.c_str()).c_str());
     Expect(!t.empty(), "T12 segment arrows+enter commits");
   }
 

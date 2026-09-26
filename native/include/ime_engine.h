@@ -39,7 +39,7 @@ std::vector<Candidate> Decode(const DecodeInput& input);
 std::string ConvertRomaji(const std::string& raw, bool* ok);
 bool ConvertRomajiChecked(const std::string& raw, std::string* kana);
 
-// F6-F10 character class conversion on UTF-8 text. vk: VK_F6..VK_F10.
+// UTF-8文字列の文字種を変換する。vkにはVK_F6～VK_F10を指定する。
 std::string ConvertCharacterClass(const std::string& utf8, int vk_fkey);
 
 enum class SpaceAction { kInsertSpace, kStartConversion, kNextCandidate, kPrevCandidate };
@@ -77,7 +77,7 @@ class Session {
   bool SelectCandidate(int index);
   void ReplaceVisible(const std::string& text);
   void ChooseLiteral();
-  // Segment (bunsetsu) navigation during conversion. ←/→ move, Shift+←/→ resize.
+  // 変換中の文節移動と境界の変更を扱う。
   void PressLeft();
   void PressRight();
   void PressShiftLeft();
@@ -94,6 +94,12 @@ class Session {
   int interaction_generation() const { return interaction_generation_; }
   bool composing() const { return !raw_text_.empty(); }
   bool is_converting() const { return manual_lock_ && !candidates_.empty(); }
+  bool candidates_ready() const {
+    return !deferred_decoding_ || editing_ || raw_text_.size() > 512 ||
+        (manual_lock_ && !awaiting_candidates_) ||
+        (resolved_revision_ == revision_ && resolved_context_ == context_generation_ && !awaiting_candidates_);
+  }
+  bool last_commit_learnable() const { return last_commit_learnable_; }
   const std::vector<std::string>& output_log() const { return output_log_; }
   const std::vector<std::string>& learning_log() const { return learning_log_; }
 
@@ -110,6 +116,7 @@ class Session {
   int context_generation_ = 0;
   int interaction_generation_ = 0;
   int candidate_list_generation_ = 0;
+  int resolved_revision_ = -1, resolved_context_ = -1;
   std::string raw_text_;
   size_t raw_cursor_ = 0;
   bool editing_ = false;
@@ -119,13 +126,14 @@ class Session {
   std::string right_context_;
   std::string field_ = "prose";
   std::string phase_ = "end_of_phrase";
-  // Spec AUTO-01: punctuation completion default OFF
+  // 文末の句点補完は既定で無効（AUTO-01）。
   bool punctuation_completion_ = false;
   bool learning_allowed_ = true;
   bool manual_lock_ = false;
   bool engine_alive_ = true;
+  bool last_commit_learnable_ = false;
   int selected_index_ = 0;
-  // Segment boundaries as UTF-8 byte offsets into raw_text_ (starts 0, ends size).
+  // 文節境界はraw_text_のUTF-8バイト位置。先頭は0、末尾は文字列長。
   std::vector<size_t> segment_bounds_;
   int segment_index_ = 0;
   bool segment_manual_ = false;

@@ -1,10 +1,10 @@
-param([switch]$AllowDesktopInput)
+﻿param([switch]$AllowDesktopInput)
 $ErrorActionPreference = 'Stop'
 if (-not $AllowDesktopInput) {
   throw 'This script opens a visible Rich Edit window and types into it. Run again with -AllowDesktopInput only when the desktop is free.'
 }
 $taskRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$taskExe = Join-Path $taskRoot 'native/build/e2e_out_v12/e2e_tip_tests.exe'
+$taskExe = Join-Path $taskRoot 'native/build/e2e_out_v13/e2e_tip_tests.exe'
 $taskAudit = Join-Path $taskRoot 'audit/2026-09-26/readme-demo'
 New-Item -ItemType Directory -Path $taskAudit -Force | Out-Null
 $taskStdout = Join-Path $taskAudit 'demo.out.txt'

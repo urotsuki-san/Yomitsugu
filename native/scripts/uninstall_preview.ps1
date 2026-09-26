@@ -1,7 +1,7 @@
 ﻿$ErrorActionPreference = 'Stop'
 $taskAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
 if (-not $taskAdmin) { throw 'Run from an Administrator Windows PowerShell.' }
-$taskDll = Join-Path $PSScriptRoot 'ime_mixed_tip_v12.dll'
+$taskDll = Join-Path $PSScriptRoot 'ime_mixed_tip_v13.dll'
 $taskClsidKey = 'Registry::HKEY_CLASSES_ROOT\CLSID\{8F3A1C2E-4B5D-4E6F-8A9B-0C1D2E3F4A5B}\InProcServer32'
 if (Test-Path -LiteralPath $taskClsidKey) {
     $taskRegistered = (Get-Item -LiteralPath $taskClsidKey).GetValue('')

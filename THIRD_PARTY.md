@@ -1,22 +1,22 @@
-# Third-party components and data
+# 同梱ソフトウェアと辞書のライセンス
 
-Yomitsugu's original code is MIT licensed. The components below retain their own copyrights and licenses; the root `LICENSE` does not relicense them. This inventory records the current source and preview-package inputs. It is not a blanket clearance for every binary produced by the toolchain.
+Yomitsuguの独自コードは[MIT](LICENSE)です。辞書・モデル・同梱ライブラリーには、以下のライセンスが適用されます。配布パッケージには各ライセンスの本文を収録しています。
 
-| Component | Use | License / source | Local notice |
+| 構成要素 | 用途 | ライセンス・出典 | 表記の保存先 |
 |---|---|---|---|
-| [myime](https://github.com/unok/myime) at `a8486eca5312556ff88fed7f1850a28843b67977` | conversion-engine integration and Windows build | MIT; its tree also includes other licensed components | `upstream/myime/LICENSE` in the build checkout; copied to package `licenses/myime-LICENSE` |
-| [AzooKeyKanaKanjiConverter](https://github.com/azooKey/AzooKeyKanaKanjiConverter) | kana-kanji converter | MIT | upstream `LICENSE`; include in binary package |
-| [azooKey_dictionary_storage](https://github.com/azooKey/azooKey_dictionary_storage) | main dictionary | Apache-2.0 | upstream `LICENSE`; copied to package `licenses/azookey-dictionary-LICENSE` |
-| [azooKey_emoji_dictionary_storage](https://github.com/azooKey/azooKey_emoji_dictionary_storage) | emoji lookup data in the AzooKey resource bundle | generated from Mozc emoji data and Unicode emoji/CLDR data | upstream `README.md` and `data/README.md`; package includes those provenance notes plus Mozc and Unicode notices |
-| [Zenzai v3.2 small GGUF](https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf) at revision `c67e03e07d215c869f591b274c1631170d3e11fe` | optional local model, SHA-256 `29c223d4c23327b80fd13ebb5ab2555057a46317997d5da391584ffbef0db673` | model repository declares Apache-2.0 | identify model and include Apache-2.0 text in binary package |
-| [llama.cpp](https://github.com/ggml-org/llama.cpp) | model runtime used by myime | MIT | include in binary package |
-| [Swift runtime and Foundation](https://www.swift.org/) | Windows Swift, Foundation and Dispatch DLLs used by the isolated engine | Apache-2.0 with Swift Runtime Library Exception; Unicode data inside Foundation follows the Unicode License | package includes `licenses/swift-LICENSE` and `licenses/unicode-LICENSE` |
-| Microsoft Visual C++ runtime | `vcruntime`, `msvcp`, `concrt` DLLs | Microsoft redistributable terms for the licensed Visual Studio toolchain | only release DLLs named in Microsoft's [redistributable list](https://learn.microsoft.com/en-us/cpp/windows/determining-which-dlls-to-redistribute?view=msvc-170) are included |
-| [nlohmann/json](https://github.com/nlohmann/json) | JSON parser | MIT | `native/third_party/nlohmann/LICENSE.MIT` |
-| [Mozc `symbol.tsv`](https://github.com/google/mozc/blob/master/src/data/symbol/symbol.tsv) | symbol entries in the derived public dictionary | Mozc repository lists BSD-3-Clause for Google-authored code/data; preserve accompanying notice | `native/third_party/public-dictionary-NOTICE.txt` |
-| [Mozc romanization table](https://github.com/google/mozc/blob/b9c3fcbd6d76b19649ef572324fa9da2559bc18e/src/data/preedit/romanji-hiragana.tsv) | generated romaji rules, including extended sounds and pending-key transitions | BSD-3-Clause | `native/third_party/public-dictionary-NOTICE.txt`; source revision and SHA-256 in `native/src/romaji_table.inc` |
-| [EDRDG EDICT2](https://www.edrdg.org/pub/Nihongo/edict2u.gz) | noun, common-word, loanword and computing entries, plus an English literal index extracted from loanword/computing glosses | CC BY-SA 4.0; attribution and ShareAlike apply to derived dictionary entries | `native/third_party/public-dictionary-NOTICE.txt` |
+| [myime](https://github.com/unok/myime) at `a8486eca5312556ff88fed7f1850a28843b67977` | 変換エンジンの接続とWindowsビルド | MIT。依存物にはそれぞれのライセンスを適用 | ビルド元の `upstream/myime/LICENSE`。配布時は `licenses/myime-LICENSE` |
+| [AzooKeyKanaKanjiConverter](https://github.com/azooKey/AzooKeyKanaKanjiConverter) | かな漢字変換 | MIT | 上流の `LICENSE` を配布パッケージに同梱 |
+| [azooKey_dictionary_storage](https://github.com/azooKey/azooKey_dictionary_storage) | 本辞書 | Apache-2.0 | 配布時は `licenses/azookey-dictionary-LICENSE` |
+| [azooKey_emoji_dictionary_storage](https://github.com/azooKey/azooKey_emoji_dictionary_storage) | AzooKeyの絵文字辞書 | Mozc・Unicode emoji・CLDR由来。各出典の条件を適用 | 上流の `README.md` と `data/README.md`、MozcとUnicodeの表記を同梱 |
+| [Zenzai v3.2 small GGUF](https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf) at revision `c67e03e07d215c869f591b274c1631170d3e11fe` | ローカルモデル。SHA-256 `29c223d4c23327b80fd13ebb5ab2555057a46317997d5da391584ffbef0db673` | モデルのリポジトリ表記はApache-2.0 | モデルの出典とApache-2.0の本文を同梱 |
+| [llama.cpp](https://github.com/ggml-org/llama.cpp) | myimeが使うモデル実行基盤 | MIT | 配布パッケージに同梱 |
+| [Swift runtime and Foundation](https://www.swift.org/) | 変換プロセス内のSwift・Foundation・Dispatch DLL | Apache-2.0とSwift Runtime Library Exception。Foundation内のUnicodeデータはUnicode License | `licenses/swift-LICENSE` と `licenses/unicode-LICENSE` |
+| Microsoft Visual C++ runtime | `vcruntime`, `msvcp`, `concrt` DLLs | 使用したVisual Studioの再配布条件 | Microsoftの[再配布可能ファイル一覧](https://learn.microsoft.com/en-us/cpp/windows/determining-which-dlls-to-redistribute?view=msvc-170) に従いRelease用DLLを同梱 |
+| [nlohmann/json](https://github.com/nlohmann/json) | JSONの読み書き | MIT | `native/third_party/nlohmann/LICENSE.MIT` |
+| [Mozc `symbol.tsv`](https://github.com/google/mozc/blob/master/src/data/symbol/symbol.tsv) | 公開辞書の記号 | BSD-3-Clause。付属の著作権表示を保持 | `native/third_party/public-dictionary-NOTICE.txt` |
+| [Mozc romanization table](https://github.com/google/mozc/blob/b9c3fcbd6d76b19649ef572324fa9da2559bc18e/src/data/preedit/romanji-hiragana.tsv) | 拡張音と子音の持ち越しを含むローマ字の変換規則 | BSD-3-Clause | `native/third_party/public-dictionary-NOTICE.txt`; 出典のリビジョンとSHA-256は `native/src/romaji_table.inc` |
+| [EDRDG EDICT2](https://www.edrdg.org/pub/Nihongo/edict2u.gz) | 一般語・外来語・コンピューター用語と英字保持用の索引 | CC BY-SA 4.0。派生辞書にも表示・継承の条件を適用 | `native/third_party/public-dictionary-NOTICE.txt` |
 
-The generated `native/assets/public_dictionary.tsv` combines separately attributed source rows. The EDRDG-derived portion is offered under CC BY-SA 4.0. The software code is not automatically subject to that data license. The dictionary update fetches only public source files; typed input and the user's dictionary are not uploaded.
+公開辞書 `native/assets/public_dictionary.tsv` は複数の出典をまとめたデータです。EDRDG由来の部分にはCC BY-SA 4.0を適用します。コードのMITライセンスで辞書の条件を置き換えるものではありません。更新時には出典と取得ファイルのSHA-256を `.sources.json` に保存します。
 
-The package carries the notices found for the DLLs, model and dictionary assets above. A fresh-machine installation, upgrade and uninstall, and compatibility across real applications still need testing before calling the binary a stable public release. Source publication and permission to redistribute a built package are separate checks.
+アーキテクチャ図に埋め込まれたJetBrains MonoはSIL Open Font License 1.1です。ライセンス本文は `docs/architecture/yomitsugu.html` に含まれています。

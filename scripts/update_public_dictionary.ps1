@@ -1,4 +1,4 @@
-﻿# Windows PowerShell 5.1 / .NET Framework. Downloads dictionaries only; no input text is sent.
+﻿# MozcとEDRDGの公開辞書を取得し、変換用のTSVを生成する。
 param([string]$OutputPath = (Join-Path $env:LOCALAPPDATA 'ImeMixed\public_dictionary.tsv'), [string]$SourceDirectory = '')
 $ErrorActionPreference = 'Stop'
 $OutputPath = [IO.Path]::GetFullPath($OutputPath)

@@ -64,7 +64,7 @@ def fitting(draw: ImageDraw.ImageDraw, value: str, path: Path, start: int, width
 def render(case: int, typed: str, candidate: str, *, complete: bool, step: int, total: int):
     image = Image.new("RGB", SIZE, BG)
     d = ImageDraw.Draw(image)
-    # Minimal graphic accents match the README hero without competing with the text.
+    # READMEの配色に合わせ、文字の周囲に装飾を置く。
     d.rectangle((0, 0, 10, SIZE[1]), fill=CYAN)
     d.rectangle((40, 38, 54, 52), fill=AMBER)
     d.text((70, 27), "YOMITSUGU", font=font(LATIN_FONT, 31), fill=TEXT)
@@ -139,8 +139,7 @@ def main():
         if index + 1 == len(keyframes):
             continue
         following = keyframes[index + 1]
-        # Short dissolves keep the selected, real E2E states legible while
-        # avoiding the stop-motion appearance of one long still per keystroke.
+        # 表示の切り替えに短いフェードを入れ、打鍵間の動きをつなぐ。
         for fraction in (0.25, 0.5, 0.75):
             frames.append(Image.blend(frame, following, fraction))
             durations.append(55)

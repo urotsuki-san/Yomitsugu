@@ -7,13 +7,14 @@ using nlohmann::json;
 namespace { void Close(HANDLE& h) { if (h && h != INVALID_HANDLE_VALUE) CloseHandle(h); h = nullptr; } }
 EngineChannel::~EngineChannel() { Stop(); }
 void EngineChannel::Stop() {
-  // The job contains only the child created below, never a host application.
+  // Jobへ登録するのは、このクラスで起動した変換プロセスだけ。
   if (job_) TerminateJobObject(job_, 0);
   Close(job_); Close(process_); Close(write_); Close(read_);
-  pending_.reset(); active_.reset(); received_.clear();
+  pending_.reset(); active_.reset(); received_.clear(); learning_.clear(); active_learning_ = false;
 }
-bool EngineChannel::Start(const std::wstring& executable) {
+bool EngineChannel::Start(const std::wstring& executable, const std::wstring& profile_directory) {
   Stop();
+  if (profile_directory.find(L'"') != std::wstring::npos) return false;
   HANDLE input = nullptr, output = nullptr;
   SECURITY_ATTRIBUTES sa{sizeof(sa), nullptr, TRUE};
   if (!CreatePipe(&input, &write_, &sa, 65536) || !CreatePipe(&read_, &output, &sa, 65536)) {
@@ -36,6 +37,11 @@ bool EngineChannel::Start(const std::wstring& executable) {
   start.StartupInfo.hStdInput = nul; start.StartupInfo.hStdOutput = nul; start.StartupInfo.hStdError = nul;
   std::wstring cmd = L"\"" + executable + L"\" --pipe " + std::to_wstring(reinterpret_cast<uintptr_t>(input)) +
                      L" " + std::to_wstring(reinterpret_cast<uintptr_t>(output));
+  if (!profile_directory.empty()) {
+    cmd += L" --profile \"" + profile_directory;
+    if (profile_directory.back() == L'\\') cmd += L'\\';
+    cmd += L'"';
+  }
   job_ = CreateJobObjectW(nullptr, nullptr);
   JOBOBJECT_EXTENDED_LIMIT_INFORMATION limit{};
   limit.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
@@ -58,21 +64,38 @@ void EngineChannel::Submit(const DecodeInput& request) {
   if (!process_ || request.raw_text.size() > 512 || request.raw_text.empty()) return;
   pending_ = request;  // At most one pending snapshot, the most recent input.
 }
+void EngineChannel::Learn(const DecodeInput& request, const std::string& chosen) {
+  if (!process_ || request.field != "prose" || chosen.empty() || request.raw_text.empty()) return;
+  if (learning_.size() == 128) learning_.pop_front();
+  learning_.push_back({request, chosen});
+}
+void EngineChannel::FinishLearning(DWORD timeout_ms) {
+  pending_.reset();
+  const auto until = GetTickCount64() + timeout_ms;
+  while (process_ && (active_learning_ || !learning_.empty()) && GetTickCount64() < until) {
+    DecodeInput request; std::vector<Candidate> candidates;
+    Poll(&request, &candidates); Sleep(1);
+  }
+}
 bool EngineChannel::Poll(DecodeInput* request, std::vector<Candidate>* candidates) {
   if (!process_) return false;
   if (WaitForSingleObject(process_, 0) != WAIT_TIMEOUT || (active_ && GetTickCount64() > deadline_)) {
     Stop(); return false;
   }
-  if (!active_ && pending_) {
-    const auto& r = *pending_;
+  if (!active_ && (pending_ || !learning_.empty())) {
+    const bool learning = !learning_.empty();
+    const auto& r = learning ? learning_.front().request : *pending_;
     json j{{"version",1},{"raw",r.raw_text},{"left",r.left_context.substr(0,512)},
            {"right",r.right_context.substr(0,512)},{"field",r.field},{"limit",r.candidate_limit}};
+    if (learning) { j["operation"] = "learn"; j["chosen"] = learning_.front().chosen; }
     auto data = j.dump(); uint32_t size = static_cast<uint32_t>(data.size());
     std::string frame(reinterpret_cast<const char*>(&size), sizeof(size)); frame += data;
     DWORD written = 0;
     if (frame.size() > 16384 || !WriteFile(write_, frame.data(), static_cast<DWORD>(frame.size()), &written, nullptr) ||
         written != frame.size()) { Stop(); return false; }
-    active_ = std::move(pending_); pending_.reset(); deadline_ = GetTickCount64() + 30000;
+    active_ = r; active_learning_ = learning;
+    if (learning) learning_.pop_front(); else pending_.reset();
+    deadline_ = GetTickCount64() + 30000;
   }
   DWORD available = 0;
   if (!PeekNamedPipe(read_, nullptr, 0, nullptr, &available, nullptr)) { Stop(); return false; }
@@ -89,6 +112,10 @@ bool EngineChannel::Poll(DecodeInput* request, std::vector<Candidate>* candidate
   if (received_.size() < size + sizeof(size)) return false;
   try {
     auto j = json::parse(received_.substr(sizeof(size), size));
+    if (active_learning_) {
+      if (!j.is_object() || !j.contains("learned") || !j["learned"].is_boolean()) { Stop(); return false; }
+      received_.clear(); active_.reset(); active_learning_ = false; return false;
+    }
     if (!active_ || !j.is_array() || j.size() > 32) { Stop(); return false; }
     std::vector<Candidate> result;
     for (const auto& item : j) {

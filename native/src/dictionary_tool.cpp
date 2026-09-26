@@ -9,7 +9,7 @@ int wmain(int argc, wchar_t** argv) {
   if (!dictionary.Load(argv[2], &error)) { std::cerr << error << '\n'; return 3; }
   auto target = ime::UserDictionaryPath(); if (target.empty()) return 4;
   std::error_code ec; std::filesystem::create_directories(target.parent_path(),ec); if (ec) return 5;
-  // Preserve the previous dictionary; replacement is atomic on the same volume.
+  // 元の辞書を保存し、同じボリューム内でファイルを置き換える。
   auto backup = target; backup += L".bak";
   if (std::filesystem::exists(target)) {
     std::filesystem::copy_file(target,backup,std::filesystem::copy_options::overwrite_existing,ec); if(ec) return 6;

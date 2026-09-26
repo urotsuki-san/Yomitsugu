@@ -32,6 +32,6 @@ STDAPI DllGetClassObject(REFCLSID rclsid, REFIID riid, void** ppv) {
   return hr;
 }
 
-// Registration helpers implemented in register.cpp
+// 登録処理はregister.cppに実装する。
 STDAPI DllRegisterServer() { return RegisterTextService(); }
 STDAPI DllUnregisterServer() { return UnregisterTextService(); }
