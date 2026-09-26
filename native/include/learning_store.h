@@ -19,6 +19,7 @@ class LearningStore {
   bool Save();
   std::filesystem::path directory_, history_, settings_;
   std::filesystem::file_time_type stamp_{};
+  std::uint64_t file_id_ = 0, file_size_ = 0;
   std::vector<Entry> entries_;
 };
 }

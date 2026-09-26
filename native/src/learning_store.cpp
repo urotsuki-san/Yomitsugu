@@ -76,9 +76,17 @@ std::string LearningStore::Key(const DecodeInput& input) {
 void LearningStore::Load(bool force) {
   std::error_code error;
   auto stamp = std::filesystem::last_write_time(history_, error);
-  if (error) { entries_.clear(); stamp_ = {}; return; }
-  if (!force && stamp == stamp_) return;
-  entries_.clear(); stamp_ = stamp;
+  if (error) { entries_.clear(); stamp_ = {}; file_id_ = file_size_ = 0; return; }
+  HANDLE file = CreateFileW(history_.c_str(), FILE_READ_ATTRIBUTES,
+      FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+  BY_HANDLE_FILE_INFORMATION info{};
+  const bool identified = file != INVALID_HANDLE_VALUE && GetFileInformationByHandle(file, &info);
+  if (file != INVALID_HANDLE_VALUE) CloseHandle(file);
+  const auto identity = (static_cast<std::uint64_t>(info.nFileIndexHigh) << 32) | info.nFileIndexLow;
+  const auto bytes = (static_cast<std::uint64_t>(info.nFileSizeHigh) << 32) | info.nFileSizeLow;
+  // 保存時のファイル置換を識別し、更新日時が同じでも他プロセスの変更を読む。
+  if (!force && identified && stamp == stamp_ && identity == file_id_ && bytes == file_size_) return;
+  entries_.clear(); stamp_ = stamp; file_id_ = identity; file_size_ = bytes;
   const auto data = ReadJson(history_, 1024 * 1024);
   if (!data.is_object() || !data.contains("version") || data["version"] != 1 || !data.contains("entries") || !data["entries"].is_array()) return;
   try {

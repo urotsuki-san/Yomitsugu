@@ -25,6 +25,8 @@ add_library(ime_dictionary STATIC src/user_dictionary.cpp src/learning_store.cpp
 target_include_directories(ime_dictionary PUBLIC include PRIVATE third_party)
 target_compile_definitions(ime_dictionary PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 target_link_libraries(ime_dictionary PUBLIC shell32 ole32)
+add_executable(learning_test tests/learning_test.cpp)
+target_link_libraries(learning_test PRIVATE ime_dictionary ime_preview)
 add_executable(ime_dictionary_tool src/dictionary_tool.cpp)
 target_link_libraries(ime_dictionary_tool PRIVATE ime_dictionary ime_preview)
 add_executable(ime_settings WIN32 src/settings.cpp src/dictionary_editor.cpp)

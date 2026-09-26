@@ -30,8 +30,10 @@ jobs:
         run: |
           cmake -S native -B native/build -A x64
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
-          cmake --build native/build --config Release --target app_update_test engine_test debug_dump ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
+          cmake --build native/build --config Release --target learning_test app_update_test engine_test debug_dump ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
+          & native/build/Release/learning_test.exe
+          if ($LASTEXITCODE -ne 0) { throw 'Learning cache test failed' }
       - name: Dictionary update history
         shell: pwsh
         run: scripts/ci/test_dictionary_update.ps1
@@ -42,12 +44,38 @@ jobs:
     timeout-minutes: 150
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/cache/restore@v4
+        id: runtime-cache
+        with:
+          key: windows-2022-runtime-v1-${{ hashFiles('scripts/ci/prepare_runtime.ps1') }}
+          path: |
+            upstream/myime/build/x64/release
+            upstream/myime/LICENSE
+            upstream/myime/llama.cpp-src/LICENSE
+            upstream/myime/src/AzooKeyKanaKanjiConverter/LICENSE
+            upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/LICENSE
+            upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_emoji_dictionary_storage/README.md
+            upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_emoji_dictionary_storage/data/README.md
       - uses: SwiftyLab/setup-swift@38f54a76b70d989321de9dc7c840618c08cf56e9
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         with:
           swift-version: "6.3.3"
       - name: Prepare pinned conversion runtime
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
         shell: pwsh
         run: scripts/ci/prepare_runtime.ps1
+      - uses: actions/cache/save@v4
+        if: steps.runtime-cache.outputs.cache-hit != 'true'
+        with:
+          key: windows-2022-runtime-v1-${{ hashFiles('scripts/ci/prepare_runtime.ps1') }}
+          path: |
+            upstream/myime/build/x64/release
+            upstream/myime/LICENSE
+            upstream/myime/llama.cpp-src/LICENSE
+            upstream/myime/src/AzooKeyKanaKanjiConverter/LICENSE
+            upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/LICENSE
+            upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_emoji_dictionary_storage/README.md
+            upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_emoji_dictionary_storage/data/README.md
       - name: Build and test full engine
         shell: pwsh
         run: |

@@ -124,9 +124,13 @@ int wmain(int argc, wchar_t** argv) {
     Check(learning.Record(input,u8"橋")&&learning.Record(input,u8"橋"),"repeated selections counted");
     list=base(); reopened.Apply(input,&list);
     Check(list.front().output_text==u8"橋","frequent selection wins after another process updates history");
+    const auto same_tick = std::filesystem::last_write_time(directory/L"learning.json");
     Check(learning.Record(input,u8"端"),"recent selection counted");
+    std::filesystem::last_write_time(directory/L"learning.json",same_tick);
     list=base(); reopened.Apply(input,&list);
     Check(list.front().output_text==u8"端","recent selection breaks equal counts");
+    Check(std::filesystem::last_write_time(directory/L"learning.json")==same_tick && list.front().output_text==u8"端",
+          "learning refreshes when replaced file keeps the same timestamp");
     Check(learning.SetEnabled(false)&&!reopened.enabled(),"learning setting shared between instances");
     Check(!learning.Record(input,u8"箸"),"disabled learning does not save");
     list=base(); reopened.Apply(input,&list);
