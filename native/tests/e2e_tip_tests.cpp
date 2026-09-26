@@ -180,6 +180,22 @@ static bool ActivateOurTtip() {
 
   profiles->EnableLanguageProfile(kTextServiceClsid, 0x0411, kProfileGuid, TRUE);
 
+  // 英語環境のCIでも、日本語を選んでからIMEを有効にする。
+  LANGID current_language = 0;
+  profiles->GetCurrentLanguage(&current_language);
+  std::printf("Current input language=0x%04x\n", current_language);
+  if (current_language != 0x0411) {
+    hr = profiles->ChangeCurrentLanguage(0x0411);
+    std::printf("ChangeCurrentLanguage hr=0x%08lx\n", hr);
+    if (FAILED(hr)) {
+      const auto keyboard = LoadKeyboardLayoutW(L"00000411", KLF_ACTIVATE);
+      std::printf("Load Japanese keyboard available=%d\n", keyboard ? 1 : 0);
+      hr = profiles->ChangeCurrentLanguage(0x0411);
+      std::printf("ChangeCurrentLanguage after keyboard hr=0x%08lx\n", hr);
+    }
+    Pump(150);
+  }
+
   BSTR desc = nullptr;
   hr = profiles->GetLanguageProfileDescription(kTextServiceClsid, 0x0411, kProfileGuid, &desc);
   std::printf("GetLanguageProfileDescription hr=0x%08lx\n", hr);

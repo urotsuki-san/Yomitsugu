@@ -41,6 +41,9 @@ jobs:
         if: always()
         with:
           name: installed-input-e2e-results
-          path: audit/installed-e2e
+          path: |
+            audit/installed-e2e/*.log
+            audit/installed-e2e/*.err
+            audit/installed-e2e/*.json
           if-no-files-found: error
           retention-days: 14

@@ -64,7 +64,7 @@ foreach($taskCase in @(@{name='full';arguments=@()},@{name='reported';arguments=
         throw ('Input test timed out: '+$taskCase.name)
     }
     $taskLines=Get-Content -LiteralPath $taskLog -Encoding UTF8
-    $taskLines | Select-String 'PASS|FAIL|E2E done|TIPDIAG'
+    if($taskProcess.ExitCode -ne 0){$taskLines}else{$taskLines | Select-String 'PASS|FAIL|E2E done|TIPDIAG'}
     $taskResults+=@{name=$taskCase.name;exit=$taskProcess.ExitCode;summary=($taskLines | Select-String 'E2E done').Line}
 }
 @{installer_sha256=$taskHash;registered_dll=$taskRegistered;upgraded_from='0.2.8-preview';profile_preserved=$true;tests=$taskResults} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $taskAudit 'result.json') -Encoding UTF8
