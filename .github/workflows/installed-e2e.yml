@@ -1,0 +1,46 @@
+name: Installed input E2E
+
+on:
+  workflow_dispatch:
+    inputs:
+      artifact_run:
+        description: Windows workflow run containing the installer
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  installed-input:
+    runs-on: windows-2022
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download tested installer
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN: ${{ inputs.artifact_run }}
+        run: |
+          if ($env:ARTIFACT_RUN -notmatch '^[0-9]+$') { throw 'Invalid run ID' }
+          gh run download $env:ARTIFACT_RUN --name yomitsugu-0.2.9-preview-installer --dir audit/ci-installer
+          if ($LASTEXITCODE -ne 0) { throw 'Artifact download failed' }
+      - name: Build input and update test drivers
+        shell: pwsh
+        run: |
+          cmake -S native -B native/build -A x64
+          if ($LASTEXITCODE -ne 0) { throw 'Configuration failed' }
+          cmake --build native/build --config Release --target e2e_tip_tests app_update_test
+          if ($LASTEXITCODE -ne 0) { throw 'Driver build failed' }
+      - name: Install through updater and run input E2E
+        shell: pwsh
+        run: scripts/ci/run_installed_e2e.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: installed-input-e2e-results
+          path: audit/installed-e2e
+          if-no-files-found: error
+          retention-days: 14
