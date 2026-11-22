@@ -241,7 +241,10 @@ def test_taskbar(pid,snapshot,result_file):
         result["before"]=mode_status()
         action=taskbar_audit(result_file,click=True)
         result["action"]=action
-        if action!="入力モードボタンを左クリック":return result
+        if action!="入力モードボタンを左クリック":
+            if action in (None,"ボタンのクリック位置を特定できない","入力モードのボタンを検出"):result["passed"]=False
+            return result
+        result["passed"]=False
         time.sleep(.3)
         result["foreground_after_click"]=foreground_pid()
         if foreground_pid()!=pid:
@@ -255,10 +258,14 @@ def test_taskbar(pid,snapshot,result_file):
         try:
             result["opened_input"]=bool(wait(lambda:any(e["type"]=="compositionstart" and e["trusted"]
                 for e in snapshot()["events"][begin:]),"No native composition after clicking the mode button",2))
+            result["kana_observed"]=bool(wait(lambda:any(e["type"]=="input" and e["trusted"] and
+                e["value"].endswith("か") for e in snapshot()["events"][begin:]),"ka did not become か after the click",2))
+            result["passed"]=result["before"]==0 and result["after"]==1 and result["opened_input"] and result["kana_observed"]
         finally:
             result["events"]=snapshot()["events"][begin:]
         tap(pid,0x1b)
     except Exception as error:
+        result["passed"]=False
         result["error"]=str(error)
     return result
 
@@ -424,5 +431,6 @@ def main():
     if args.result:args.result.write_text(output,encoding="utf8")
     else:print(output)
     if args.native and not result["candidate_list_passed"]:raise SystemExit("The expected candidate row was not visible")
+    if args.native and result["taskbar"].get("passed") is False:raise SystemExit("The identified mode button failed to switch Chrome input")
 
 if __name__=="__main__":main()
