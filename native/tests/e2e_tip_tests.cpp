@@ -5,6 +5,7 @@
 #include <oleauto.h>
 #include <commctrl.h>
 #include <richedit.h>
+#include <wrl/client.h>
 
 #include <cstdio>
 #include <cstring>
@@ -334,6 +335,36 @@ static bool CandidateVisible() {
   return visible;
 }
 
+// RichEdit can already display the expected string while TSF still owns it.
+static void ExpectCommittedText(ITfThreadMgr* manager, const wchar_t* expected, const char* label) {
+  using Microsoft::WRL::ComPtr;
+  ComPtr<ITfDocumentMgr> document;
+  ComPtr<ITfContext> context;
+  ComPtr<ITfContextComposition> compositions;
+  HRESULT hr = manager->GetFocus(&document);
+  if (SUCCEEDED(hr)) hr = document ? document->GetTop(&context) : E_FAIL;
+  if (SUCCEEDED(hr)) hr = context ? context.As(&compositions) : E_FAIL;
+
+  std::wstring text;
+  ULONG active = 0;
+  const auto deadline = GetTickCount64() + 4000;
+  while (SUCCEEDED(hr) && GetTickCount64() < deadline) {
+    text = GetEditText();  // Also dispatch pending TSF edits.
+    ComPtr<IEnumITfCompositionView> views;
+    hr = compositions->EnumCompositions(&views);
+    if (FAILED(hr)) break;
+    ComPtr<ITfCompositionView> first;
+    hr = views->Next(1, &first, &active);
+    if (SUCCEEDED(hr) && active == 0 && text == expected) {
+      Expect(true, label);
+      return;
+    }
+  }
+  std::printf("COMMIT expected=[%s] actual=[%s] active=%lu hr=0x%08lx\n",
+              Utf8(expected).c_str(), Utf8(text.c_str()).c_str(), active, static_cast<unsigned long>(hr));
+  Expect(false, label);
+}
+
 static void WaitForCommit(const wchar_t* expected = nullptr) {
   const auto deadline = GetTickCount64() + 4000;
   do { Pump(30); } while ((CandidateVisible() || (expected && GetEditText()!=expected)) && GetTickCount64() < deadline);
@@ -562,8 +593,8 @@ int main(int argc, char** argv) {
       ClearEdit();
       Expect(button->OnClick(TF_LBI_CLK_LEFT, {}, nullptr) == S_OK, "T00 reopen from indicator");
       Pump(100);
-      RunKeys("ka"); Pump(120); SendVk(VK_RETURN); Pump(120);
-      Expect(GetEditText() == L"か", "T00 same input field converts after one click");
+      RunKeys("ka"); Pump(120); SendVk(VK_RETURN);
+      ExpectCommittedText(tsf_thread_mgr, L"か", "T00 same input field converts after one click");
     }
     if (button) button->Release();
     if (item) item->Release();
@@ -577,8 +608,7 @@ int main(int argc, char** argv) {
     RunKeys("ka");
     Pump(120);
     SendVk(VK_RETURN);
-    Pump(120);
-    Expect(GetEditText() == L"か", "T00 active TIP converts romaji to kana");
+    ExpectCommittedText(tsf_thread_mgr, L"か", "T00 active TIP converts romaji to kana");
     PrintTipDiagnostics("after_T00");
   }
 
@@ -854,8 +884,8 @@ int main(int argc, char** argv) {
     ClearBetween(); FocusEdit(); RunKeys(c.keys);
     const auto deadline = GetTickCount64() + 10000;
     while (GetTickCount64() < deadline && GetEditText() != c.expected) Pump(50);
-    SendVk(VK_RETURN); Pump(100);
-    Expect(GetEditText() == c.expected, c.label);
+    SendVk(VK_RETURN);
+    ExpectCommittedText(tsf_thread_mgr, c.expected, c.label);
   }
   std::printf("=== E2E done pass=%d fail=%d ===\n", g_pass, g_fail);
   PrintTipDiagnostics("final");
