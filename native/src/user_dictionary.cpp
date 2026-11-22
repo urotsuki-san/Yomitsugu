@@ -273,9 +273,13 @@ bool UserDictionary::RecoverNasalBoundary(const DecodeInput& input, std::vector<
           return word != key && (whole_word ? text == word : text.find(word) != text.npos);
         })) return false;
     if (text == original) return !top_only || comparison.first_gain > 5.0f;
+    // If the normal decoder retained the literal reading and the last n is
+    // still ambiguous, several alternative headwords do not establish an intent.
+    const bool preserve_literal = end == alternate.size() && raw.back() == 'n' &&
+        raw[raw.size()-2] != 'n' && original == reading && words.size() > 1;
     const bool repeated = !original.empty() &&
         (input.left_context.find(original) != std::string::npos || input.right_context.find(original) != std::string::npos);
-    const size_t position = repeated || whole_word ? 1 : (comparison.first_gain > 5.0f ? 0 : 2);
+    const size_t position = repeated || whole_word || preserve_literal ? 1 : (comparison.first_gain > 5.0f ? 0 : 2);
     if (top_only && position != 0) return false;
     return PlaceRecoveredCandidate(input, rows, text, alternate, position);
   }
