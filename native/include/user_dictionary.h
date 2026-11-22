@@ -12,6 +12,7 @@ class UserDictionary {
   bool Load(const std::filesystem::path& path, std::string* error, bool public_dictionary = false);
   void Apply(const DecodeInput& input, std::vector<Candidate>* candidates,
              bool public_dictionary = false, bool final = true) const;
+  std::string UnfinishedRomaji(const DecodeInput& input) const;
   bool HasPersonalEntry(const std::string& reading) const { return entries_.count(reading) != 0; }
   size_t size() const { return count_; }
   const std::string& json() const { return json_; }

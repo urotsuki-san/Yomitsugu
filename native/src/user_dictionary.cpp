@@ -130,6 +130,23 @@ std::vector<std::string> UserDictionary::Words(std::string_view reading, bool su
   if (public_index_) return public_index_->Words(reading, supplemental_only);
   return (supplemental_only ? supplemental_words_ : entries_).at(std::string(reading));
 }
+std::string UserDictionary::UnfinishedRomaji(const DecodeInput& input) const {
+  const auto& raw = input.raw_text;
+  if (input.field != "prose" || input.phase != "end_of_phrase" || raw.size() < 4 || raw.size() > 96 ||
+      raw.find_first_not_of("abcdefghijklmnopqrstuvwxyz'-") != raw.npos ||
+      !std::strchr("bcdfghjklmpqrstvwxyz", raw.back()) || (Flags(raw) & English) || ContainsLatinName(raw)) return {};
+  std::string display;
+  if (ConvertRomajiChecked(raw, &display)) return {};
+  const auto tail = display.find_first_of("abcdefghijklmnopqrstuvwxyz");
+  // At least three complete Japanese mora precede one unfinished syllable.
+  if (tail == display.npos || tail < 9 || display.size()-tail > 3) return {};
+  const auto consonants = display.substr(tail);
+  if (consonants.find_first_not_of("bcdfghjklmpqrstvwxyz") != consonants.npos) return {};
+  for (const char vowel : std::string_view("aiueo")) {
+    if (ConvertRomajiChecked(consonants+vowel, nullptr)) return display;
+  }
+  return {};
+}
 void UserDictionary::Apply(const DecodeInput& input, std::vector<Candidate>* candidates,
                            bool public_dictionary, bool final) const {
   if (public_dictionary && ApplyEnglish(input,candidates)) return;

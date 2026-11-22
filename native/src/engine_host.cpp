@@ -230,7 +230,10 @@ int wmain(int argc, wchar_t** argv) {
       const bool verify_suffix = search_models && hybrid.verifies_dictionary() && request.field == "prose" &&
           request.phase != "typing" && request.right_context.empty() && hybrid_reading.empty() &&
           ime::SplitShortLatinSuffix(request.raw_text, &latin_prefix, &suffix_reading);
-      const bool dictionary_first=hybrid.enabled() && (verify_suffix || request.phase=="typing" || !hybrid_reading.empty() || hybrid.LowMemory());
+      const auto unfinished = hybrid.verifies_dictionary() && hybrid_reading.empty() && !verify_suffix
+          ? public_dictionary.UnfinishedRomaji(request) : std::string{};
+      const bool dictionary_first=hybrid.enabled() && (verify_suffix || request.phase=="typing" ||
+          !hybrid_reading.empty() || !unfinished.empty() || hybrid.LowMemory());
       ime::AzookeySetDictionaryPreview(dictionary_first || !search_models);
       std::vector<ime::Candidate> result;
       auto apply_preferences = [&](std::vector<ime::Candidate>& rows, bool protect_numbers = false, bool final = false) {
@@ -238,6 +241,16 @@ int wmain(int argc, wchar_t** argv) {
         public_dictionary.Apply(request, &rows, true, final);
         if (final && words.empty() && !has_personal_part &&
             (!dictionary.size() || (!kana.empty() && !hybrid.LowMemory()))) PreferDocumentSpelling(request,rows);
+        if (final && !unfinished.empty() && !rows.empty()) {
+          const auto tail = unfinished.find_first_of("abcdefghijklmnopqrstuvwxyz");
+          const auto suffix = std::string_view(unfinished).substr(tail);
+          const auto& first = rows.front().output_text;
+          if (first.size() < suffix.size() || first.compare(first.size()-suffix.size(),suffix.size(),suffix) != 0) {
+            auto existing = std::find_if(rows.begin(),rows.end(),[&](const auto& c){ return c.output_text == unfinished; });
+            if (existing == rows.end()) rows.insert(rows.begin(),ime::Candidate{unfinished,unfinished,false});
+            else std::rotate(rows.begin(),existing,existing+1);
+          }
+        }
         learning.Apply(request, &rows);
         // An exact personal entry may intentionally omit or replace a number.
         // For partial matches the ordinary digit-preservation rule still applies.
@@ -303,6 +316,13 @@ int wmain(int argc, wchar_t** argv) {
         if (!words.empty() && !hybrid.LowMemory()) paths.Protect(words,result);
       } else if (search_models) refiner.Apply(request, &result);
       apply_preferences(result, hybrid.enabled() && request.raw_text.find_first_of("0123456789") != std::string::npos, true);
+      // A phonetic suggestion may have discarded the unfinished consonant.
+      // Keep the exact keystrokes selectable even when the list was already full.
+      if (!unfinished.empty() && displayLimit > 1) {
+        auto raw = std::find_if(result.begin(),result.end(),[&](const auto& c) { return c.output_text == request.raw_text; });
+        if (raw == result.end()) result.push_back(ime::Candidate{request.raw_text,request.raw_text,true});
+        else raw->is_raw = true;
+      }
       if (result.size() > displayLimit) {
         auto literal = std::find_if(result.begin() + displayLimit, result.end(), [](const auto& row) { return row.is_raw; });
         if (displayLimit > 1 && literal != result.end()) result[displayLimit - 1] = std::move(*literal);
