@@ -166,3 +166,12 @@ jobs:
             audit/typing-latency.json
           retention-days: 7
           if-no-files-found: error
+
+  installed-input-checks:
+    needs: installer-preview
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/installed-e2e.yml
+    with:
+      artifact_run: ${{ format('{0}', github.run_id) }}

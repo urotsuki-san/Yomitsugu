@@ -1,6 +1,11 @@
 name: Installed input E2E
 
 on:
+  workflow_call:
+    inputs:
+      artifact_run:
+        required: true
+        type: string
   workflow_dispatch:
     inputs:
       artifact_run:
