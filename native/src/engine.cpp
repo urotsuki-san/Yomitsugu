@@ -5,11 +5,12 @@
 #include "ime_engine.h"
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <cstring>
-#include <regex>
 #include <set>
 #include <sstream>
+#include <string_view>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -17,21 +18,73 @@ namespace ime {
 namespace {
 
 struct RomajiRule { const char* key; const char* output; const char* pending; };
-const std::unordered_map<std::string, RomajiRule>& RomajiTable() {
-  static const auto table = [] {
-    std::unordered_map<std::string, RomajiRule> result;
-    const RomajiRule entries[] = {
+constexpr RomajiRule kRomajiRules[] = {
 #include "romaji_table.inc"
-      {"?", u8"？", ""}, {"!", u8"！", ""}, {":", u8"：", ""}, {";", u8"；", ""},
-      {"0", u8"０", ""}, {"1", u8"１", ""}, {"2", u8"２", ""}, {"3", u8"３", ""},
-      {"4", u8"４", ""}, {"5", u8"５", ""}, {"6", u8"６", ""}, {"7", u8"７", ""},
-      {"8", u8"８", ""}, {"9", u8"９", ""},
-    };
-    for (const auto& entry : entries) result[entry.key] = entry;
+  {"?", u8"？", ""}, {"!", u8"！", ""}, {":", u8"：", ""}, {";", u8"；", ""},
+  {"0", u8"０", ""}, {"1", u8"１", ""}, {"2", u8"２", ""}, {"3", u8"３", ""},
+  {"4", u8"４", ""}, {"5", u8"５", ""}, {"6", u8"６", ""}, {"7", u8"７", ""},
+  {"8", u8"８", ""}, {"9", u8"９", ""},
+};
+
+// Index the imported Mozc rules and their unfinished prefixes in the DLL's
+// read-only image. Rule numbers are one-based so zero can denote a prefix.
+struct RomajiPrefix {
+  uint32_t key{};
+  uint16_t rule{};
+  bool longer{};
+};
+
+struct RomajiIndex {
+  static constexpr unsigned kSlotBits = 10;
+  std::array<RomajiPrefix, 1u << kSlotBits> slots{};
+
+  constexpr size_t Slot(uint32_t key) const {
+    size_t i = (key * 2654435761u) >> (32 - kSlotBits);
+    while (slots[i].key && slots[i].key != key) i = (i + 1) % slots.size();
+    return i;
+  }
+
+  constexpr RomajiIndex() {
+    size_t used = 0;
+    for (size_t i = 0; i < std::size(kRomajiRules); ++i) {
+      const auto text = std::string_view(kRomajiRules[i].key);
+      if (text.empty() || text.size() > 4) throw "romaji keys must be 1-4 bytes";
+      uint32_t key = 0;
+      for (size_t n = 0; n < text.size(); ++n) {
+        key = (key << 8) | static_cast<unsigned char>(text[n]);
+        auto& slot = slots[Slot(key)];
+        if (!slot.key && ++used >= slots.size()) throw "romaji index is full";
+        slot.key = key;
+        if (n + 1 == text.size()) slot.rule = static_cast<uint16_t>(i + 1);
+        else slot.longer = true;
+      }
+    }
+  }
+
+  bool CanExtend(std::string_view tail) const {
+    if (tail.empty() || tail.size() >= 4) return false;
+    uint32_t key = 0;
+    for (unsigned char c : tail) {
+      if (!c) return false;
+      key = (key << 8) | c;
+    }
+    return slots[Slot(key)].longer;
+  }
+
+  const RomajiRule* Longest(std::string_view input) const {
+    const RomajiRule* result = nullptr;
+    uint32_t key = 0;
+    for (unsigned char c : input.substr(0, 4)) {
+      if (!c) break;
+      key = (key << 8) | c;
+      const auto& prefix = slots[Slot(key)];
+      if (prefix.rule) result = &kRomajiRules[prefix.rule-1];
+      if (!prefix.longer) break;
+    }
     return result;
-  }();
-  return table;
-}
+  }
+};
+constexpr RomajiIndex kRomajiIndex{};
 
 struct WordEntry {
   const char* reading;
@@ -270,25 +323,15 @@ bool HasKanjiUtf8(const std::string& s) {
 }
 
 std::string ConvertRomajiImpl(const std::string& src, bool* fully) {
-  const auto& table = RomajiTable();
   std::string out;
   size_t i = 0;
   bool ok = true;
   auto try_table = [&](size_t pos) -> size_t {
-    size_t best = 0;
-    std::string best_kana;
-    size_t max_len = std::min<size_t>(4, src.size() - pos);
-    for (size_t L = max_len; L >= 1; --L) {
-      std::string piece = src.substr(pos, L);
-      auto it = table.find(piece);
-      if (it != table.end()) {
-        best = L - std::strlen(it->second.pending);
-        best_kana = it->second.output;
-        break;
-      }
-    }
-    if (best) out += best_kana;
-    return best;
+    const auto* rule = kRomajiIndex.Longest(std::string_view(src).substr(pos));
+    if (!rule) return 0;
+    const auto used = std::strlen(rule->key) - std::strlen(rule->pending);
+    if (used) out += rule->output;
+    return used;
   };
 
   while (i < src.size()) {
@@ -381,10 +424,7 @@ std::u32string Utf8ToU32(const std::string& s) {
   return out;
 }
 
-int Levenshtein(const std::string& a, const std::string& b, int cap) {
-  if (a == b) return 0;
-  const std::u32string ua = Utf8ToU32(a);
-  const std::u32string ub = Utf8ToU32(b);
+int Levenshtein(const std::u32string& ua, const std::u32string& ub, int cap) {
   if (std::abs(static_cast<int>(ua.size()) - static_cast<int>(ub.size())) > cap)
     return cap + 1;
   std::vector<int> prev(ub.size() + 1), cur(ub.size() + 1);
@@ -398,7 +438,7 @@ int Levenshtein(const std::string& a, const std::string& b, int cap) {
       row_min = std::min(row_min, cur[j]);
     }
     if (row_min > cap) return cap + 1;
-    prev = cur;
+    prev.swap(cur);
   }
   return prev[ub.size()];
 }
@@ -410,18 +450,18 @@ int PhraseCapChars(size_t chars) {
   return std::max<int>(4, static_cast<int>(chars / 3));
 }
 
-bool FuzzyPhrase(const std::string& reading, const std::string& key, int* dist_out) {
-  size_t chars_a = Utf8CodePointCount(reading);
-  size_t chars_b = Utf8CodePointCount(key);
-  int cap = PhraseCapChars(std::max(chars_a, chars_b));
-  int d = Levenshtein(reading, key, cap);
-  if (d <= cap) {
-    if (dist_out) *dist_out = d;
-    return true;
+struct PhraseReadings {
+  std::vector<std::u32string> characters;
+  std::unordered_map<std::string_view,std::vector<const PhraseEntry*>> exact;
+  size_t max_bytes = 0;
+  PhraseReadings() {
+    for (const auto& phrase : kPhrases) {
+      characters.push_back(Utf8ToU32(phrase.reading));
+      exact[phrase.reading].push_back(&phrase);
+      max_bytes = std::max(max_bytes, std::strlen(phrase.reading));
+    }
   }
-  if (dist_out) *dist_out = d;
-  return false;
-}
+};
 
 struct ReadingSolution {
   std::string surface;
@@ -497,13 +537,15 @@ std::vector<ReadingSolution> SolveReading(const std::string& reading) {
     sols.push_back(s);
   };
 
-  for (const auto& p : kPhrases) {
-    if (reading == p.reading) {
-      add({p.surface, p.cost, 0.0});
-    }
-  }
+  static const PhraseReadings phrases;
+  auto add_exact = [&](const std::string& key, double extra, double edit) {
+    const auto found = phrases.exact.find(key);
+    if (found == phrases.exact.end()) return;
+    for (const auto* p : found->second) add({p->surface, p->cost + extra, edit});
+  };
+  add_exact(reading, 0.0, 0.0);
   // 長音の「う」を1箇所に補う。短い読みでは2箇所への挿入も試す。
-  {
+  if (reading.size() < phrases.max_bytes) {
     static const std::string ou = u8"う";
     std::vector<std::string> lens{reading};
     for (size_t i = 0; i < reading.size() && lens.size() < 24;) {
@@ -536,33 +578,30 @@ std::vector<ReadingSolution> SolveReading(const std::string& reading) {
     std::unordered_set<std::string> seen{reading};
     for (const auto& variant : lens) {
       if (!seen.insert(variant).second) continue;
-      for (const auto& p : kPhrases) {
-        if (variant == p.reading) add({p.surface, p.cost + 4.0, 1.5});
-      }
+      add_exact(variant, 4.0, 1.5);
     }
   }
-  for (const auto& variant : KanaRepairVariants(reading)) {
-    if (variant == reading) continue;
-    for (const auto& p : kPhrases) {
-      if (variant == p.reading) {
-        add({p.surface, p.cost + 6.0, 2.0});
-      }
+  // A single repair removes at most one UTF-8 scalar (four bytes).
+  if (reading.size() <= phrases.max_bytes + 4) {
+    for (const auto& variant : KanaRepairVariants(reading)) {
+      if (variant != reading) add_exact(variant, 6.0, 2.0);
     }
   }
-  for (const auto& p : kPhrases) {
+  const auto characters = Utf8ToU32(reading);
+  const auto length = Utf8CodePointCount(reading);
+  for (size_t i = 0; i < phrases.characters.size(); ++i) {
+    const auto& p = kPhrases[i];
     if (reading == p.reading) continue;
-    int d = 0;
-    if (FuzzyPhrase(reading, p.reading, &d)) {
+    const auto& phrase = phrases.characters[i];
+    const int cap = PhraseCapChars(std::max(length, phrase.size()));
+    const int d = Levenshtein(characters, phrase, cap);
+    if (d <= cap) {
       add({p.surface, p.cost + 7.5 * d, 1.5 * d});
     }
   }
 
   // 動的計画法で単語をつなぎ、助詞の補完も試す。nはUTF-8のバイト数。
   const size_t n = reading.size();
-  size_t max_word_bytes = 8;
-  for (const auto& w : kWords)
-    max_word_bytes = std::max(max_word_bytes, std::strlen(w.reading));
-  max_word_bytes += 4;  // safety margin for substr scans
   struct State {
     double cost;
     double edit;
@@ -572,35 +611,21 @@ std::vector<ReadingSolution> SolveReading(const std::string& reading) {
   dp[0].push_back({0.0, 0.0, ""});
   for (size_t i = 0; i < n; ++i) {
     if (dp[i].empty()) continue;
-    std::vector<State> base = dp[i];
-    if (base.size() > 4) base.resize(4);
+    // Every transition consumes bytes. Finished states can be released now.
+    auto base = std::move(dp[i]);
     bool matched = false;
-    for (size_t L = std::min(max_word_bytes, n - i); L >= 1; --L) {
-      // 照合の開始位置をUTF-8の文字境界にそろえる。
-      if (L < n - i) {
-        unsigned char b = static_cast<unsigned char>(reading[i + L]);
-        if ((b & 0xC0) == 0x80) continue;
-      }
-      if (i > 0) {
-        unsigned char s0 = static_cast<unsigned char>(reading[i]);
-        if ((s0 & 0xC0) == 0x80) continue;
-      }
-      std::string piece = reading.substr(i, L);
-      bool any = false;
-      for (const auto& w : kWords) {
-        if (piece == w.reading) any = true;
-      }
-      if (!any) continue;
+    for (const auto& word : kWords) {
+      const std::string_view key(word.reading);
+      if (reading.compare(i, key.size(), key) != 0) continue;
+      const auto end = i + key.size();
+      if (end < n && (static_cast<unsigned char>(reading[end]) & 0xc0) == 0x80) continue;
       matched = true;
-      for (const auto& w : kWords) {
-        if (piece != w.reading) continue;
-        for (const auto& st : base) {
-          if (dp[i + L].size() >= 4) break;
-          State nx = st;
-          nx.cost += w.cost;
-          nx.surf += w.surface;
-          dp[i + L].push_back(nx);
-        }
+      // A fixed start and end select one length. The original dictionary order
+      // therefore gives the same first four paths for every destination.
+      auto& next = dp[i + key.size()];
+      for (const auto& st : base) {
+        if (next.size() >= 4) break;
+        next.push_back({st.cost + word.cost, st.edit, st.surf + word.surface});
       }
     }
     if (!matched && i > 0) {
@@ -690,25 +715,95 @@ struct ProtectRegion {
   enum Kind { kProtect, kIdent } kind;
 };
 
+// A bare slash after z belongs to the romaji middle-dot shortcut. Keep that
+// interpretation unless a drive, explicit path prefix or file extension resolves the ambiguity.
+bool IsSlashPath(const std::string& raw) {
+  const size_t first = raw.find('/');
+  if (first == std::string::npos || raw.size() < 2) return false;
+  const bool drive = first == 2 && raw[1] == ':' &&
+      ((raw[0] >= 'A' && raw[0] <= 'Z') || (raw[0] >= 'a' && raw[0] <= 'z'));
+  constexpr auto valid = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-/~";
+  if (raw.find_first_not_of(valid, drive ? 2 : 0) != std::string::npos) return false;
+  if (drive || first == 0 || raw.compare(0, 2, "./") == 0 || raw.compare(0, 3, "../") == 0 ||
+      raw.compare(0, 2, "~/") == 0) return true;
+  const size_t last = raw.rfind('/');
+  const size_t dot = raw.find('.', last + 1);
+  if (dot != std::string::npos && dot > last + 1 && dot + 1 < raw.size()) return true;
+  for (size_t at = first; at != std::string::npos; at = raw.find('/', at + 1)) {
+    if (at > 0 && raw[at - 1] != 'z') {
+      if (first != last) return true;
+      return !ConvertRomajiChecked(raw.substr(0, first), nullptr) ||
+             !ConvertRomajiChecked(raw.substr(first + 1), nullptr);
+    }
+  }
+  return false;
+}
+
 std::vector<ProtectRegion> DetectProtect(const std::string& raw, const std::string& field) {
   std::vector<ProtectRegion> out;
-  if (field == "url" || field == "path" || field == "email" || field == "code" ||
+  if (IsSlashPath(raw) || field == "url" || field == "path" || field == "email" || field == "code" ||
       field == "identifier" || field == "password") {
     if (!raw.empty()) out.push_back({0, raw.size(), ProtectRegion::kProtect});
     return out;
   }
-  static const std::regex url_re(R"((?:https?://|www\.)[^\s\"'<>]+)", std::regex::icase);
-  static const std::regex email_re(R"([A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,})");
-  static const std::regex winpath_re(R"([A-Za-z]:\\[^\s\"'<>|]+)");
-  auto add_matches = [&](const std::regex& re, ProtectRegion::Kind kind) {
-    for (std::sregex_iterator it(raw.begin(), raw.end(), re), end; it != end; ++it) {
-      out.push_back({static_cast<size_t>((*it)[0].first - raw.begin()),
-                     static_cast<size_t>((*it)[0].second - raw.begin()), kind});
+  const auto letter = [](unsigned char c) {
+    return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z');
+  };
+  const auto digit = [](unsigned char c) { return c >= '0' && c <= '9'; };
+  const auto domain = [&](char c) { return letter(c) || digit(c) || c == '.' || c == '-'; };
+  const auto local = [&](char c) { return domain(c) || c == '_' || c == '%' || c == '+'; };
+  if (raw.find('@') != std::string::npos) {
+    size_t previous_end = 0;
+    for (size_t at = raw.find('@'); at != std::string::npos; at = raw.find('@', at + 1)) {
+      size_t begin = at;
+      while (begin > previous_end && local(raw[begin - 1])) --begin;
+      if (begin == at) continue;
+      size_t matched_end = 0;
+      for (size_t i = at + 1; i < raw.size() && domain(raw[i]);) {
+        if (raw[i] == '.' && i > at + 1) {
+          const size_t suffix = ++i;
+          while (i < raw.size() && letter(raw[i])) ++i;
+          if (i - suffix >= 2) matched_end = i;
+        } else ++i;
+      }
+      if (matched_end) {
+        out.push_back({begin, matched_end, ProtectRegion::kProtect});
+        previous_end = matched_end;
+      }
+    }
+  }
+  const auto starts = [&](size_t pos, std::string_view pattern) {
+    if (pattern.size() > raw.size() - pos) return false;
+    for (size_t j = 0; j < pattern.size(); ++j) {
+      unsigned char c = raw[pos + j];
+      if (c >= 'A' && c <= 'Z') c += 'a' - 'A';
+      if (c != pattern[j]) return false;
+    }
+    return true;
+  };
+  const auto scan_link = [&](bool windows_path) {
+    for (size_t i = 0; i < raw.size();) {
+      size_t start_text = i;
+      if (windows_path) {
+        if (letter(raw[i]) && raw.compare(i + 1, 2, ":\\") == 0) start_text += 3;
+      } else if (starts(i, "https://")) start_text += 8;
+      else if (starts(i, "http://")) start_text += 7;
+      else if (starts(i, "www.")) start_text += 4;
+      if (start_text == i) { ++i; continue; }
+      size_t end = start_text;
+      while (end < raw.size()) {
+        const unsigned char c = raw[end];
+        if (std::isspace(c) || c == '"' || c == '\'' || c == '<' || c == '>' || (windows_path && c == '|')) break;
+        ++end;
+      }
+      if (end > start_text) {
+        out.push_back({i, end, ProtectRegion::kProtect});
+        i = end;
+      } else ++i;
     }
   };
-  add_matches(url_re, ProtectRegion::kProtect);
-  add_matches(email_re, ProtectRegion::kProtect);
-  add_matches(winpath_re, ProtectRegion::kProtect);
+  if (raw.find_first_of(":.") != std::string::npos) scan_link(false);
+  if (raw.find('\\') != std::string::npos) scan_link(true);
   std::sort(out.begin(), out.end(), [](const ProtectRegion& a, const ProtectRegion& b) {
     return a.start < b.start;
   });
@@ -721,6 +816,34 @@ std::vector<ProtectRegion> DetectProtect(const std::string& raw, const std::stri
     merged.push_back(r);
   }
   return merged;
+}
+
+bool BeginsWithParticle(std::string_view tail) {
+  static constexpr std::string_view particles[] = {
+      "wo","ha","wa","ga","ni","de","no","to","mo","he","kara","made"};
+  return std::any_of(std::begin(particles), std::end(particles), [&](auto particle) {
+    return tail.substr(0, particle.size()) == particle;
+  });
+}
+
+size_t DomainLabelLength(std::string_view label) {
+  static constexpr std::string_view domains[] = {
+      "com","net","org","edu","gov","mil","int","info","biz","dev","app","io","jp","co"};
+  for (auto domain : domains) {
+    if (label.size() < domain.size() ||
+        !std::equal(domain.begin(), domain.end(), label.begin(), [](char lower, unsigned char c) {
+          return lower == std::tolower(c);
+        })) continue;
+    if (label.size() == domain.size()) return domain.size();
+    // Keep the original host spelling when the next letters form Japanese.
+    // A particle alone is ambiguous, e.g. the last two letters in ".code".
+    const auto tail = label.substr(domain.size());
+    if (tail.size() >= 4 && BeginsWithParticle(tail) &&
+        tail.find_first_not_of("abcdefghijklmnopqrstuvwxyz") == std::string_view::npos &&
+        ConvertRomajiChecked(std::string(tail), nullptr))
+      return domain.size();
+  }
+  return 0;
 }
 
 std::string ShrinkDotted(const std::string& text) {
@@ -738,6 +861,8 @@ std::string ShrinkDotted(const std::string& text) {
   parts.push_back(cur);
   if (parts.size() < 2) return text;
   std::string last = parts.back();
+  if (const auto length = DomainLabelLength(last))
+    return text.substr(0, text.size() - last.size() + length);
   if (last.empty()) {
     parts.pop_back();
     std::string join;
@@ -784,19 +909,175 @@ std::string ShrinkDotted(const std::string& text) {
   return join;
 }
 
+#include "latin_names.inc"
+
+bool IsLatinName(std::string_view folded) {
+  const auto last = std::end(kLatinNameOffsets);
+  const auto it = std::lower_bound(std::begin(kLatinNameOffsets), last, folded,
+      [](uint16_t offset, std::string_view key) {
+        return std::string_view(kLatinNameBytes + offset) < key;
+      });
+  return it != last && std::string_view(kLatinNameBytes + *it) == folded;
+}
+
+// Split lexical names from Japanese inflection at complete reading boundaries.
+// Compare a folded view, but return byte spans in the original composition.
+std::vector<ProtectRegion> LatinNameSpans(const std::string& raw,
+                                        const std::vector<ProtectRegion>& protected_spans,
+                                        bool typing = false) {
+  constexpr std::string_view letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  constexpr std::string_view identifier_marks = "_./:@\\";
+  std::vector<ProtectRegion> spans;
+  const auto folded = ToLower(raw);
+  for (size_t first = raw.find_first_of(letters); first != std::string::npos;) {
+    const size_t stop = raw.find_first_not_of(letters, first);
+    const size_t end = stop == std::string::npos ? raw.size() : stop;
+    const size_t start = first;
+    first = raw.find_first_of(letters, end);
+    if (end-start < 3 || end-start > 96 ||
+        (start && identifier_marks.find(raw[start-1]) != std::string_view::npos) ||
+        (end < raw.size() && identifier_marks.find(raw[end]) != std::string_view::npos) ||
+        std::any_of(protected_spans.begin(),protected_spans.end(),[&](auto p) {
+          return start < p.end && end > p.start;
+        })) continue;
+    const size_t saved = spans.size();
+    size_t right = end;
+    for (size_t cut = end; cut >= start+3; --cut) {
+      const auto gap = std::string_view(raw).substr(cut,right-cut);
+      const bool starting_particle = typing && right == end && gap.size() == 1 &&
+          std::string_view("whgndtmk").find(gap.front()) != std::string_view::npos;
+      if (!gap.empty() && !starting_particle && !BeginsWithParticle(gap)) continue;
+      const size_t earliest = cut-start > kLongestLatinName ? cut-kLongestLatinName : start;
+      for (size_t from = earliest; from+3 <= cut; ++from) {
+        const auto name = std::string_view(folded).substr(from,cut-from);
+        if (!IsLatinName(name)) continue;
+        // A standalone name in a space-delimited English sentence already has
+        // word boundaries. Keep the surrounding words available to language scoring.
+        if (from == start && cut == end &&
+            ((start && raw[start - 1] == ' ') || (end < raw.size() && raw[end] == ' '))) continue;
+        if (!gap.empty()) {
+          if (gap.find_first_not_of("abcdefghijklmnopqrstuvwxyz") != std::string_view::npos) break;
+          bool complete = false;
+          const auto kana = ConvertRomajiImpl(std::string(gap), &complete);
+          if (!complete) {
+            const auto pending = kana.find_first_of("abcdefghijklmnopqrstuvwxyz");
+            if (!typing || right != end || pending == std::string::npos) break;
+            const auto tail = std::string_view(kana).substr(pending);
+            if (tail.size()>2 || !kRomajiIndex.CanExtend(tail)) break;
+          }
+        }
+        // Lowercase names which also read as kana need an explicit particle.
+        // Bare kana such as "sakura" stays available to ordinary conversion.
+        if (name == std::string_view(raw).substr(from,cut-from) &&
+            (gap.empty() || from != start || name.size() < 5) &&
+            ConvertRomajiChecked(std::string(name),nullptr)) continue;
+        spans.push_back({from,cut,ProtectRegion::kIdent});
+        right = from;
+        cut = right+1;
+        break;
+      }
+    }
+    if (right < end && right > start && !ConvertRomajiChecked(raw.substr(start,right-start),nullptr))
+      spans.resize(saved);
+    else
+      std::reverse(spans.begin()+saved,spans.end());
+    // An unlisted Latin stem can precede the relatively distinctive particle wo.
+    // Require a complete multi-mora reading and a stem which cannot be kana.
+    if (spans.size() == saved) {
+      const auto token = std::string_view(raw).substr(start, end-start);
+      for (size_t wo = token.find("wo", 3); wo != token.npos; wo = token.find("wo", wo+2)) {
+        const auto stem = token.substr(0, wo);
+        const auto tail = token.substr(wo+2);
+        if (tail.size() < 4 || tail.find_first_not_of("abcdefghijklmnopqrstuvwxyz") != tail.npos ||
+            stem.find_first_of("aeiouAEIOU") == stem.npos) continue;
+        if (!ConvertRomajiChecked(ToLower(std::string(stem)), nullptr) &&
+            ConvertRomajiChecked(std::string(tail), nullptr)) {
+          spans.push_back({start,start+wo,ProtectRegion::kIdent});
+          break;
+        }
+      }
+    }
+  }
+  return spans;
+}
+
+// End offsets for the ASCII runs used by dotted, snake-case, camel-case,
+// acronym and version identifiers. Each suffix is computed once, including
+// suffixes that fail to form an identifier.
+struct IdentifierRuns {
+  size_t letters, upper, digits, alnum, word, lower_digits;
+  size_t dotted, snake, camel, version;
+};
+
+std::vector<IdentifierRuns> IdentifierSuffixes(const std::string& text) {
+  const size_t n = text.size();
+  std::vector<IdentifierRuns> runs(n + 1);
+  runs[n] = {n,n,n,n,n,n,n,n,n,n};
+  for (size_t i = n; i-- > 0;) {
+    const char c = text[i];
+    const bool upper = 'A' <= c && c <= 'Z';
+    const bool lower = 'a' <= c && c <= 'z';
+    const bool digit = '0' <= c && c <= '9';
+    const bool alpha = lower || upper;
+    const bool alnum = alpha || digit;
+    const bool word = alnum || c == '_';
+    const bool lower_digit = lower || digit;
+    const auto& next = runs[i + 1];
+    auto& r = runs[i];
+    r.letters = alpha ? next.letters : i;
+    r.upper = upper ? next.upper : i;
+    r.digits = digit ? next.digits : i;
+    r.alnum = alnum ? next.alnum : i;
+    r.word = word ? next.word : i;
+    r.lower_digits = lower_digit ? next.lower_digits : i;
+    auto separated = [&](size_t end, char separator, size_t IdentifierRuns::*suffix) {
+      if (end < n && text[end] == separator && runs[end + 1].*suffix > end + 1)
+        return runs[end + 1].*suffix;
+      return end;
+    };
+    r.dotted = word ? separated(r.word, '.', &IdentifierRuns::dotted) : i;
+    r.snake = alnum ? separated(r.alnum, '_', &IdentifierRuns::snake) : i;
+    r.version = digit ? separated(r.digits, '.', &IdentifierRuns::version) : i;
+    r.camel = r.lower_digits;
+    if (lower_digit && r.camel < n && text[r.camel] >= 'A' && text[r.camel] <= 'Z' &&
+        runs[r.camel + 1].lower_digits > r.camel + 1)
+      r.camel = runs[r.camel + 1].camel;
+  }
+  return runs;
+}
+
+size_t IdentifierEnd(const std::vector<IdentifierRuns>& runs, size_t i) {
+  const auto& r = runs[i];
+  if (r.letters == i) return i;
+  if (r.dotted > r.word) return r.dotted;
+  if (r.snake > r.alnum) return r.snake;
+  const auto& next = runs[i + 1];
+  if (next.lower_digits > i + 1 && next.camel > next.lower_digits) return next.camel;
+  if (r.upper >= i + 2) return runs[r.upper].digits;
+  const auto& numeric = runs[r.letters];
+  if (numeric.digits > r.letters) return runs[numeric.version].alnum;
+  return i;
+}
+
 std::vector<ProtectRegion> DetectIdent(const std::string& raw, const std::vector<ProtectRegion>& base) {
-  std::vector<ProtectRegion> idents;
-  static const std::regex ident_re(
-      R"([A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)+|[A-Za-z][a-z0-9]+(?:[A-Z][a-z0-9]+)+|[A-Z]{2,}[0-9]*|[A-Za-z]+\d+(?:\.\d+)*[A-Za-z0-9]*)");
-  for (std::sregex_iterator it(raw.begin(), raw.end(), ident_re), end; it != end; ++it) {
-    size_t s = static_cast<size_t>((*it)[0].first - raw.begin());
-    size_t e = static_cast<size_t>((*it)[0].second - raw.begin());
+  auto idents = LatinNameSpans(raw,base);
+  const size_t name_count = idents.size();
+  if (raw.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._") == std::string::npos)
+    return idents;
+  const auto runs = IdentifierSuffixes(raw);
+  for (size_t pos = 0; pos < raw.size();) {
+    const size_t s = pos;
+    size_t e = IdentifierEnd(runs, s);
+    if (e == s) { ++pos; continue; }
+    pos = e;
     std::string text = ShrinkDotted(raw.substr(s, e - s));
     e = s + text.size();
     if (e - s < 2) continue;
     bool overlap = false;
     for (const auto& b : base)
       if (s < b.end && b.start < e) overlap = true;
+    for (size_t i = 0; i < name_count; ++i)
+      if (s < idents[i].end && idents[i].start < e) overlap = true;
     if (overlap) continue;
     std::string low = ToLower(text);
     static const std::set<std::string> stop = {"no", "in", "on", "at", "to", "or",
@@ -959,9 +1240,8 @@ Seg BuildSeg(Kind kind, size_t s, size_t e, const std::string& raw, const Decode
   // 正しく読める入力は本辞書を優先し、補正候補はその後に置く。
   if (ScoreEnglish(text) <= 1.0) {
     // 挨拶で抜けた「ん」を補って本辞書へ渡す。元の入力も候補に残す。
-    auto lookup = kana;
-    if (lookup == u8"こにちは" || lookup == u8"こにちわ") lookup = u8"こんにちは";
-    auto azoo = AzookeyConvert(lookup, 24, input.left_context, input.right_context, input.phase != "typing");
+    const auto& lookup = NormalizeDictionaryReading(kana);
+    auto azoo = AzookeyConvert(lookup, 24, input.left_context, input.right_context, input.phase != "typing", input.shallow_search);
     // 数字を含まない読みでは「3階」などの数字表記を一般語の後に置く。
     if (std::none_of(text.begin(), text.end(), [](unsigned char c) { return std::isdigit(c); })) {
       auto numeral_counter = [](const std::string& surface) {
@@ -1137,6 +1417,50 @@ std::vector<std::vector<std::pair<Kind, std::pair<size_t, size_t>>>> RegionHyps(
 
 std::string ConvertRomaji(const std::string& raw, bool* ok) {
   return ConvertRomajiImpl(raw, ok);
+}
+
+bool ContainsLatinName(const std::string& raw) {
+  // An all-romaji hostname and its suffix can also form a valid Japanese
+  // reading. Keep the full-reading model from replacing the protected host.
+  for (size_t dot = raw.find('.'); dot != std::string::npos; dot = raw.find('.', dot + 1)) {
+    if (!dot || !std::isalnum(static_cast<unsigned char>(raw[dot-1]))) continue;
+    size_t end = dot + 1;
+    while (end < raw.size() && std::isalnum(static_cast<unsigned char>(raw[end]))) ++end;
+    if (end < raw.size() && raw[end] == '.' && end+1 < raw.size() &&
+        std::isalnum(static_cast<unsigned char>(raw[end+1]))) continue;
+    if (DomainLabelLength(std::string_view(raw).substr(dot+1, end-dot-1))) return true;
+  }
+  return !LatinNameSpans(raw, {}).empty();
+}
+
+bool SplitShortLatinSuffix(const std::string& raw, std::string* prefix, std::string* reading) {
+  if (raw.size() > 96 || raw.find_first_not_of("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+      != std::string::npos) return false;
+  const auto names = LatinNameSpans(raw, {});
+  if (names.empty() || names.front().start != 0 || names.back().end == raw.size()) return false;
+  std::string literal;
+  size_t end = 0;
+  for (const auto& name : names) {
+    const auto gap = raw.substr(end, name.start - end);
+    if (!gap.empty()) {
+      static constexpr std::string_view particles[] = {"wo","ga","ni","de","no","to","mo","kara","made"};
+      if (std::find(std::begin(particles),std::end(particles),gap) == std::end(particles)) return false;
+      literal += ConvertRomajiImpl(gap, nullptr);
+    }
+    literal.append(raw,name.start,name.end-name.start);
+    end = name.end;
+  }
+  if (!ConvertRomajiChecked(raw.substr(end), reading) || reading->size() > 24) return false;
+  *prefix = std::move(literal);
+  return true;
+}
+
+const std::string& NormalizeDictionaryReading(const std::string& kana) {
+  if (kana == u8"こにちは" || kana == u8"こにちわ") {
+    static const std::string corrected = u8"こんにちは";
+    return corrected;
+  }
+  return kana;
 }
 
 bool ConvertRomajiChecked(const std::string& raw, std::string* kana) {
@@ -1428,7 +1752,25 @@ std::vector<Candidate> Decode(const DecodeInput& input) {
     if (uniq.size() >= static_cast<size_t>(input.candidate_limit)) uniq.pop_back();
     uniq.push_back(raw_c);
   }
+  ApplyStandalonePreference(input,uniq);
   return uniq;
+}
+
+void ApplyStandalonePreference(const DecodeInput& input,std::vector<Candidate>& candidates) {
+  // This documented isolated reading has a project-specific default. In sentences
+  // the context can legitimately favour 山塊, 三階, or another spelling.
+  if (input.raw_text!="sannkai" || input.phase=="typing" || input.field!="prose" ||
+      !input.left_context.empty() || !input.right_context.empty() || candidates.empty() ||
+      candidates.front().output_text==u8"散開" || input.candidate_limit<1) return;
+  auto it=std::find_if(candidates.begin(),candidates.end(),[](const auto& c){return c.output_text==u8"散開";});
+  if (it!=candidates.end()) {std::rotate(candidates.begin(),it,it+1);return;}
+  if (candidates.size()>=static_cast<size_t>(input.candidate_limit)) {
+    auto drop=candidates.end()-1;
+    if (drop!=candidates.begin() && drop->is_raw) --drop;
+    candidates.erase(drop);
+  }
+  Candidate c;c.output_text=u8"散開";c.reading_text=u8"さんかい";
+  candidates.insert(candidates.begin(),std::move(c));
 }
 
 Session::Session() { Refresh(); }
@@ -1436,11 +1778,13 @@ Session::Session() { Refresh(); }
 void Session::set_punctuation_completion(bool enabled) { punctuation_completion_ = enabled; }
 void Session::set_learning_allowed(bool allowed) { learning_allowed_ = allowed; }
 void Session::set_field(const std::string& field) {
+  ClearPreview();
   field_ = field;
   ++context_generation_;
 }
 void Session::set_context(const std::string& left, const std::string& right) {
   if (left_context_ == left && right_context_ == right) return;
+  ClearPreview();
   left_context_ = left;
   right_context_ = right;
   ++context_generation_;
@@ -1452,6 +1796,8 @@ void Session::simulate_worker_recover() {
 }
 
 void Session::BumpInteraction() {
+  f10_selected_ = false;
+  refinement_preview_sequence_ = 0;
   ++interaction_generation_;
   ++candidate_list_generation_;
   manual_lock_ = false;
@@ -1464,7 +1810,75 @@ DecodeInput Session::decode_input() const {
   in.field = field_; in.phase = phase_; in.punctuation_completion = punctuation_completion_;
   in.revision = revision_; in.context_generation = context_generation_;
   in.interaction_generation = interaction_generation_;
+  in.preview_epoch = preview_epoch_;
   return in;
+}
+
+bool Session::RememberPreview(const std::string& raw, const Candidate& candidate) {
+  const auto& text = candidate.output_text;
+  if (raw.empty() || raw.size()>96 || candidate.is_raw || text.empty() || text.size()>256 ||
+      !std::strchr("aiueon',[]",raw.back()) ||
+      raw.find_first_not_of("abcdefghijklmnopqrstuvwxyz'-,[]")!=std::string::npos ||
+      std::none_of(text.begin(),text.end(),[](unsigned char c) { return c>=128; })) return false;
+  std::string kana;
+  if (!ConvertRomajiChecked(raw,&kana) || kana.size()<6 || text==kana) return false;
+  if (!last_preview_.raw.empty() && raw.size()>last_preview_.raw.size() &&
+      !raw.compare(0,last_preview_.raw.size(),last_preview_.raw) &&
+      !kana.compare(0,last_preview_.kana.size(),last_preview_.kana) &&
+      !text.compare(0,last_preview_.text.size(),last_preview_.text)) stable_preview_=last_preview_;
+  last_preview_={raw,std::move(kana),text};
+  return true;
+}
+
+DecodeInput Session::preview_request() const {
+  auto request=decode_input();
+  if (typing() && preview_lookup_bytes_<request.raw_text.size()) request.raw_text.resize(preview_lookup_bytes_);
+  return request;
+}
+
+// A late lookup can end inside the word the typist has already continued.
+// Keep its one-kana spelling change or leftover romaji out of the preedit until
+// the current, longer reading can confirm it.
+static bool UncertainPrefixBoundary(const std::string& visible, const std::string& prefix,
+                                    std::string_view suffix) {
+  if (prefix.empty() || suffix.empty()) return false;
+  if (visible.find_first_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")==std::string::npos) {
+    const auto start=prefix.find_last_not_of("abcdefghijklmnopqrstuvwxyz");
+    if (start!=std::string::npos) {
+      const auto tail=std::string_view(prefix).substr(start+1);
+      if (!tail.empty() && tail.size()<=2 && tail.find_first_of("aiueo")!=std::string_view::npos) return true;
+    }
+  }
+  if (prefix.size()<4 || visible.size()!=prefix.size()+suffix.size() ||
+      std::string_view(visible).substr(prefix.size())!=suffix) return false;
+  const auto at=prefix.size()-3;
+  if (visible.compare(0,at,prefix,0,at)) return false;
+  char32_t before=0, after=0;
+  size_t before_length=0, after_length=0;
+  return DecodeUtf8At(visible,at,&before,&before_length) && before_length==3 &&
+      DecodeUtf8At(prefix,at,&after,&after_length) && after_length==3 &&
+      before>=0x3041 && before<=0x3096 && after>=0x3400 && after<=0x9fff;
+}
+
+bool Session::ApplyTypingPrefix(const DecodeInput& request,const Candidate& first) {
+  if (!typing() || candidates_ready() || !engine_alive_ || field_!="prose" || !right_context_.empty() ||
+      request.phase!="typing" || request.field!=field_ || request.context_generation!=context_generation_ ||
+      request.preview_epoch!=preview_epoch_ || request.revision>revision_ ||
+      interaction_generation_-request.interaction_generation!=revision_-request.revision ||
+      request.raw_text.size()<=last_preview_.raw.size() || request.raw_text.size()>=raw_text_.size() ||
+      raw_text_.size()>96 || raw_text_.compare(0,request.raw_text.size(),request.raw_text) ||
+      raw_text_.find_first_not_of("abcdefghijklmnopqrstuvwxyz'-,[]")!=std::string::npos ||
+      ScoreEnglish(raw_text_)>1.0) return false;
+  std::string prefixKana;
+  if (!ConvertRomajiChecked(request.raw_text,&prefixKana) || prefixKana.size()<9) return false;
+  bool complete=false;
+  const auto kana=ConvertRomaji(raw_text_,&complete);
+  if (kana.compare(0,prefixKana.size(),prefixKana) ||
+      (complete && UncertainPrefixBoundary(visible_text(),first.output_text,std::string_view(kana).substr(prefixKana.size()))) ||
+      !RememberPreview(request.raw_text,first)) return false;
+  Refresh();
+  // This is provisional. The complete current revision still needs its own response.
+  return true;
 }
 
 bool Session::ApplyCandidates(const DecodeInput& request, std::vector<Candidate> candidates) {
@@ -1472,9 +1886,51 @@ bool Session::ApplyCandidates(const DecodeInput& request, std::vector<Candidate>
       request.raw_text != raw_text_ || request.revision != revision_ ||
       request.context_generation != context_generation_ ||
       request.interaction_generation != interaction_generation_) return false;
+  if (typing() && field_ == "prose" && raw_text_.size() <= 96 && right_context_.empty()) {
+    const auto& surface = candidates.front().output_text;
+    if (surface.compare(0,stable_preview_.text.size(),stable_preview_.text)) stable_preview_ = {};
+    RememberPreview(raw_text_,candidates.front());
+  } else ClearPreview();
   candidates_ = std::move(candidates); selected_index_ = 0;
   resolved_revision_ = revision_; resolved_context_ = context_generation_;
   awaiting_candidates_ = false;
+  return true;
+}
+
+bool Session::ApplyPendingPreview(const DecodeInput& request, std::vector<Candidate> candidates,uint64_t sequence) {
+  // Neither a late typing result nor an intermediate result from the full
+  // request resolves this edit. Only its final reply permits automatic learning.
+  if (phase_!="end_of_phrase" || !awaiting_candidates_ ||
+      manual_lock_ || editing_ || candidates_ready() || request.raw_text!=raw_text_ ||
+      request.revision!=revision_ || request.context_generation!=context_generation_ ||
+      request.preview_epoch!=preview_epoch_ || request.field!=field_ ||
+      request.left_context!=left_context_ || request.right_context!=right_context_ ||
+      candidates.empty() || candidates.front().is_raw || candidates.front().output_text.empty())
+    return false;
+  if (request.phase=="typing" && sequence==0 && request.interaction_generation==interaction_generation_-1) {
+    if (refinement_preview_sequence_ || candidates.front().output_text==visible_text()) return false;
+    candidates_=std::move(candidates);
+  } else if (request.phase==phase_ && request.interaction_generation==interaction_generation_ &&
+             sequence>refinement_preview_sequence_) {
+    // Retain the alternatives and literal entry that the user already sees.
+    // The one-surface intermediate frame only proposes a new first candidate.
+    auto& first=candidates.front();
+    auto existing=std::find_if(candidates_.begin(),candidates_.end(),[&](const auto& entry) {
+      return entry.output_text==first.output_text;
+    });
+    if (existing!=candidates_.end()) {
+      std::rotate(candidates_.begin(),existing,existing+1);
+    } else {
+      if (candidates_.size()>=static_cast<size_t>(std::max(1,request.candidate_limit))) {
+        auto drop=candidates_.end()-1;
+        if (drop->is_raw && drop!=candidates_.begin()) --drop;
+        candidates_.erase(drop);
+      }
+      candidates_.insert(candidates_.begin(),std::move(first));
+    }
+    refinement_preview_sequence_=sequence;
+  } else return false;
+  selected_index_=0;
   return true;
 }
 
@@ -1487,6 +1943,7 @@ void Session::RefineCandidates() {
 }
 
 void Session::Refresh() {
+  preview_lookup_bytes_ = std::string::npos;
   candidates_.clear(); selected_index_ = 0;
   if (raw_text_.empty()) return;
   if (deferred_decoding_ || editing_ || !engine_alive_ || raw_text_.size() > 512) {
@@ -1497,6 +1954,46 @@ void Session::Refresh() {
     c.output_text = (engine_alive_ && raw_text_.size() <= 512 &&
                      (single_vowel || ScoreEnglish(raw_text_) <= 1.0))
         ? ConvertRomaji(raw_text_, &ok) : raw_text_;
+    if (typing() && deferred_decoding_ && engine_alive_ && field_=="prose" &&
+        right_context_.empty() && raw_text_.size()<=96 &&
+        raw_text_.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")==std::string::npos) {
+      auto names=LatinNameSpans(raw_text_,{},true);
+      if (!names.empty()) {
+        std::string preview;
+        size_t pos=0;
+        for (const auto& name:names) {
+          preview+=ConvertRomaji(raw_text_.substr(pos,name.start-pos),nullptr);
+          preview.append(raw_text_,name.start,name.end-name.start);
+          pos=name.end;
+        }
+        preview+=ConvertRomaji(raw_text_.substr(pos),&ok);
+        c.output_text=std::move(preview);
+      }
+    }
+    if (deferred_decoding_ && engine_alive_ && !editing_ && phase_=="typing" &&
+        field_=="prose" && right_context_.empty() && raw_text_.size()<=96 &&
+        raw_text_.find_first_not_of("abcdefghijklmnopqrstuvwxyz'-,[]")==std::string::npos) {
+      // Look up the completed kana. A partial syllable such as the g after
+      // nihon is still being typed and stays visible as a literal suffix.
+      const auto split=c.output_text.find_first_of("abcdefghijklmnopqrstuvwxyz");
+      if (!ok && split!=std::string::npos) {
+        const auto tail=std::string_view(c.output_text).substr(split);
+        if (tail.size()<=3 && tail.size()<=raw_text_.size() &&
+            std::string_view(raw_text_).substr(raw_text_.size()-tail.size())==tail &&
+            kRomajiIndex.CanExtend(tail)) preview_lookup_bytes_=split>=9 ? raw_text_.size()-tail.size() : 0;
+      }
+      auto extends = [&](const PreviewPrefix& p) {
+        return !p.raw.empty() && raw_text_.size()>p.raw.size() &&
+               !raw_text_.compare(0,p.raw.size(),p.raw) && !c.output_text.compare(0,p.kana.size(),p.kana);
+      };
+      if (extends(last_preview_)) {
+        const bool same_reading=preview_lookup_bytes_==last_preview_.raw.size();
+        if (same_reading) preview_lookup_bytes_=0;
+        if (same_reading || last_preview_.kana.size()>=9)
+          c.output_text.replace(0,last_preview_.kana.size(),last_preview_.text);
+      } else if (extends(stable_preview_))
+        c.output_text.replace(0,stable_preview_.kana.size(),stable_preview_.text);
+    }
     c.is_raw = c.output_text == raw_text_; candidates_.push_back(c);
     if (!c.is_raw) { c.output_text = raw_text_; c.is_raw = true; candidates_.push_back(c); }
     return;
@@ -1514,6 +2011,7 @@ void Session::PushCapped(std::vector<std::string>& log, std::string value) {
 
 void Session::Type(const std::string& text) {
   if (text.empty()) return;
+  if (editing_ || raw_cursor_ != raw_text_.size()) ClearPreview();
   // TSF側で選択中の候補を確定してから、次の入力を始める。
   if (is_converting()) Commit(visible_text(), "continued_typing");
   phase_ = deferred_decoding_ ? "typing" : "end_of_phrase";
@@ -1525,18 +2023,28 @@ void Session::Type(const std::string& text) {
 }
 
 void Session::CancelConversion() {
+  ClearPreview();
   BumpInteraction(); ++revision_; editing_ = true;
   raw_cursor_ = raw_text_.size();
   segment_bounds_.clear(); segment_index_ = 0; Refresh();
 }
 
 void Session::Backspace() {
+  ClearPreview();
   if (is_converting()) { CancelConversion(); return; }
   if (!raw_cursor_) return;
   size_t previous = raw_cursor_ - 1;
   while (previous && (static_cast<unsigned char>(raw_text_[previous]) & 0xC0) == 0x80) --previous;
   raw_text_.erase(previous, raw_cursor_ - previous); raw_cursor_ = previous;
-  ++revision_; BumpInteraction(); editing_ = true; Refresh();
+  ++revision_; BumpInteraction();
+  std::string remaining_reading;
+  const bool resume_live = deferred_decoding_ && field_ == "prose" &&
+      right_context_.empty() && raw_cursor_ == raw_text_.size() &&
+      !raw_text_.empty() && raw_text_.size() <= 96 &&
+      ScoreEnglish(raw_text_) <= 1.0 && ConvertRomajiChecked(raw_text_, &remaining_reading);
+  editing_ = !resume_live;
+  if (resume_live) phase_ = "typing";
+  Refresh();
 }
 
 SpaceAction Session::QuerySpace() const {
@@ -1600,8 +2108,10 @@ void Session::PressEnter() {
 }
 
 void Session::Reset() {
+  ClearPreview();
   last_commit_learnable_ = false;
   last_commit_explicit_ = false;
+  last_commit_f10_ = false;
   BumpInteraction(); ++revision_;
   raw_text_.clear(); raw_cursor_ = 0; editing_ = false;
   candidates_.clear(); selected_index_ = 0; manual_lock_ = false;
@@ -1649,9 +2159,11 @@ void Session::PressCharacterClass(int vk) {
   bool ok = false;
   std::string text = vk <= 0x77 ? ConvertRomaji(raw_text_, &ok) : raw_text_;
   ReplaceVisible(ConvertCharacterClass(text, vk));
+  f10_selected_ = vk == 0x79 && !raw_text_.empty();
 }
 
 void Session::DeleteForward() {
+  ClearPreview();
   if (is_converting()) { CancelConversion(); return; }
   if (raw_cursor_ >= raw_text_.size()) return;
   size_t next = raw_cursor_ + 1;
@@ -1661,10 +2173,12 @@ void Session::DeleteForward() {
 }
 
 void Session::PressHome() {
+  ClearPreview();
   if (is_converting()) CancelConversion();
   raw_cursor_ = 0; editing_ = true; BumpInteraction(); Refresh();
 }
 void Session::PressEnd() {
+  ClearPreview();
   if (is_converting()) CancelConversion();
   raw_cursor_ = raw_text_.size(); editing_ = true; BumpInteraction(); Refresh();
 }
@@ -1724,6 +2238,7 @@ void Session::RebuildSegments() {
 }
 
 void Session::PressLeft() {
+  ClearPreview();
   if (!is_converting()) {
     if (raw_cursor_) {
       --raw_cursor_;
@@ -1740,6 +2255,7 @@ void Session::PressLeft() {
 }
 
 void Session::PressRight() {
+  ClearPreview();
   if (!is_converting()) {
     if (raw_cursor_ < raw_text_.size()) {
       ++raw_cursor_;
@@ -1800,13 +2316,16 @@ std::string Session::visible_text() const {
 }
 
 void Session::Commit(const std::string& text, const char* reason) {
+  ClearPreview();
   if (text.empty() && raw_text_.empty()) return;
   last_commit_explicit_ = manual_lock_;
+  last_commit_f10_ = manual_lock_ && f10_selected_ && text == raw_text_;
   last_commit_learnable_ = candidates_ready() && field_ == "prose" && selected_index_ >= 0 &&
       selected_index_ < static_cast<int>(candidates_.size()) && !candidates_[selected_index_].is_raw;
   PushCapped(committed_history_, text + "|" + reason);
   PushCapped(output_log_, text);
-  if (learning_allowed_ && !text.empty() && text != raw_text_) PushCapped(learning_log_, text);
+  if (learning_allowed_ && (last_commit_learnable_ || last_commit_explicit_) &&
+      !text.empty() && text != raw_text_) PushCapped(learning_log_, text);
   raw_text_.clear(); raw_cursor_ = 0; editing_ = false;
   candidates_.clear();
   selected_index_ = 0;

@@ -12,7 +12,31 @@ int main() {
   }
   const auto folder=std::filesystem::temp_directory_path()/(L"yomitsugu_learning_cache_"+std::to_wstring(GetCurrentProcessId())+L"_"+std::to_wstring(GetTickCount64()));
   ime::LearningStore writer(folder),reader(folder);
+  if (reader.model()!=ime::ConversionModel::Automatic) return 1;
+  for(auto model : {ime::ConversionModel::Standard,ime::ConversionModel::Automatic,ime::ConversionModel::HybridLowMemory,ime::ConversionModel::HybridFull,ime::ConversionModel::HybridDictionaryVerify}) {
+    if(!writer.SetModel(model) || reader.model()!=model) return 1;
+  }
   ime::DecodeInput input; input.raw_text="hashi";
+  {
+    ime::DecodeInput roman; roman.raw_text = "sushi";
+    ime::Session session; session.set_deferred_decoding(true); session.Type("sushi");
+    session.PressCharacterClass(VK_F10); session.PressEnter();
+    if (!session.last_commit_f10()) return 1;
+    if (writer.Record(roman, "sushi") || !writer.Record(roman, "sushi", true, true)) return 1;
+    std::vector<ime::Candidate> words{ime::Candidate{u8"寿司"}};
+    reader.Apply(roman, &words);
+    if (words.front().output_text != u8"寿司" || !writer.Record(roman, "sushi", true, true)) return 1;
+    roman.raw_text = "SUSHI"; reader.Apply(roman, &words);
+    if (!words.front().is_raw || words.front().output_text != "SUSHI") return 1;
+    roman.field = "password"; if (writer.Record(roman, "SUSHI", true, true)) return 1;
+    if (!writer.SetEnabled(false) || !writer.SetModel(ime::ConversionModel::Compact) ||
+        reader.enabled() || reader.model() != ime::ConversionModel::Compact) return 1;
+    if (!writer.SetModel(ime::ConversionModel::CompactExtendedSearch) ||
+        reader.model() != ime::ConversionModel::CompactExtendedSearch || reader.enabled()) return 1;
+    if (!writer.Clear() || !writer.SetEnabled(true)) return 1;
+    std::filesystem::remove(folder / L"settings.json");
+    std::cout << "PASS explicit F10 learning, case, sensitive scope and model settings\n";
+  }
   const auto fixed_stamp=std::filesystem::file_time_type::clock::now();
   int passed=0;
   for(int i=0;i<100;++i) {
@@ -65,6 +89,24 @@ int main() {
   CloseHandle(locked);
   if(!rejected || candidates.front().output_text!=u8"橋" || writer.size()!=1) return 1;
   std::cout<<"PASS failed save and clear preserve persisted learning in memory\n";
+  wchar_t volume[MAX_PATH]{};
+  DWORD flags = 0;
+  if (!GetVolumePathNameW(folder.c_str(), volume, MAX_PATH) ||
+      !GetVolumeInformationW(volume, nullptr, 0, nullptr, nullptr, &flags, nullptr, 0)) return 1;
+  if (flags & FILE_SUPPORTS_POSIX_UNLINK_RENAME) {
+    HANDLE snapshot = CreateFileW((folder / L"learning.json").c_str(), GENERIC_READ,
+        FILE_SHARE_READ | FILE_SHARE_DELETE, nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (snapshot == INVALID_HANDLE_VALUE) return 1;
+    const bool saved = writer.Record(input, u8"端");
+    char previous[1024]; DWORD bytes = 0;
+    const bool read = ReadFile(snapshot, previous, sizeof(previous), &bytes, nullptr) != FALSE;
+    CloseHandle(snapshot);
+    const std::string old(previous, bytes);
+    candidates = {original}; reader.Apply(input, &candidates);
+    if (!saved || !read || old.find(u8"橋") == std::string::npos ||
+        old.find(u8"端") != std::string::npos || candidates.front().output_text != u8"端") return 1;
+    std::cout<<"PASS concurrent read keeps old learning and next read sees new selection\n";
+  }
   if(writer.Record(input,std::string("\xff")) || writer.Record(input,std::string(u8"橋\0端",7))) return 1;
   std::cout<<"PASS malformed UTF-8 and embedded NUL are rejected\n";
   {

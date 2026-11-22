@@ -80,4 +80,18 @@ curl.exe -L --fail --retry 3 --output $taskModel $taskModelUrl
 if ($LASTEXITCODE -ne 0) { throw 'Zenzai model download failed.' }
 $taskModelHash = (Get-FileHash -LiteralPath $taskModel -Algorithm SHA256).Hash
 if ($taskModelHash -ne '29C223D4C23327B80FD13EBB5AB2555057A46317997D5DA391584FFBEF0DB673') { throw "Zenzai model hash mismatch: $taskModelHash" }
+$compactModel = Join-Path $taskModels 'zenz-v3.2-xsmall-Q5_K_M.gguf'
+$compactUrl = 'https://huggingface.co/Miwa-Keita/zenz-v3.2-xsmall-gguf/resolve/42cab8392a3727d1cf80932cf2275b7d523fbb9f/ggml-model-Q5_K_M.gguf'
+curl.exe -L --fail --retry 3 --output $compactModel $compactUrl
+if ($LASTEXITCODE -ne 0 -or (Get-FileHash -LiteralPath $compactModel).Hash -ne '00C64B3D318045A708D0CAD5434FACCAB10F5481A49E6362864551FD0995FA58') {
+    throw 'Compact conversion model download or verification failed.'
+}
 Write-Output "Runtime ready: $taskOut"
+
+$destination = Join-Path $taskModels 'jinen-v2-xsmall-Q5_K_M.gguf'
+curl.exe -L --fail --retry 3 --output $destination 'https://huggingface.co/togatogah/jinen-v2-xsmall.gguf/resolve/3910fd01bf4ba86eca89617f18db9b0c1c5b2283/jinen-v2-xsmall-Q5_K_M.gguf'
+if ($LASTEXITCODE -ne 0 -or (Get-FileHash -LiteralPath $destination).Hash -ne '24ff3af5db712fbbb4aa9254ee28ec4d731207134471ab68b06c1828726284c2') { throw 'Failed to verify jinen-v2-xsmall-Q5_K_M.gguf.' }
+
+$destination = Join-Path $taskModels 'iroha-kkc-v1-Q5_K_M.gguf'
+curl.exe -L --fail --retry 3 --output $destination 'https://github.com/TetsuakiBaba/iroha/releases/download/iroha-kkc-v1/iroha-kkc-v1-Q5_K_M.gguf'
+if ($LASTEXITCODE -ne 0 -or (Get-FileHash -LiteralPath $destination).Hash -ne 'f060e259dbed28754f71e1634bc01a5d9d735d519f8ff72c333cac77c859efda') { throw 'Failed to verify iroha-kkc-v1-Q5_K_M.gguf.' }

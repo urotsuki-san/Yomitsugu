@@ -1,5 +1,9 @@
-#define AppVersion "0.2.10-preview"
+#ifndef AppVersion
+#define AppVersion "0.2.10-hybrid.12"
+#endif
+#ifndef PackageRoot
 #define PackageRoot AddBackslash(SourcePath) + "..\dist\yomitsugu-0.2.10-preview"
+#endif
 #define OutputRoot AddBackslash(SourcePath) + "..\dist\installer"
 
 [Setup]
@@ -7,7 +11,7 @@ AppId=urotsuki-san.Yomitsugu
 AppName=Yomitsugu
 AppVersion={#AppVersion}
 AppVerName=Yomitsugu {#AppVersion}
-AppPublisher=urotsuki-san
+AppPublisher=Yomitsugu
 AppPublisherURL=https://github.com/urotsuki-san/Yomitsugu
 AppSupportURL=https://github.com/urotsuki-san/Yomitsugu/issues
 DefaultDirName={autopf}\Yomitsugu\{#AppVersion}
@@ -21,13 +25,13 @@ WizardStyle=modern
 SetupIconFile=..\native\assets\yomitsugu.ico
 UninstallDisplayIcon={app}\ime_settings.exe
 OutputDir={#OutputRoot}
-OutputBaseFilename=Yomitsugu-{#AppVersion}-x64-setup
+OutputBaseFilename=Yomitsugu-0.2.10-preview-x64-setup
 Compression=lzma2
 SolidCompression=yes
 CloseApplications=no
 RestartApplications=no
 VersionInfoVersion=0.2.10.0
-VersionInfoDescription=Yomitsugu preview installer
+VersionInfoDescription=Yomitsugu for Windows x64
 
 [Files]
 Source: "{#PackageRoot}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "ime_mixed_tip_v14.dll"

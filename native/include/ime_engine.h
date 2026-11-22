@@ -29,15 +29,22 @@ struct DecodeInput {
   std::string field = "prose";
   std::string phase = "end_of_phrase";
   bool punctuation_completion = false;
+  bool dictionary_preview = false;
+  bool shallow_search = false;
   int candidate_limit = 8;
   int revision = 1;
   int context_generation = 1;
   int interaction_generation = 1;
+  uint64_t preview_epoch = 0;
 };
 
 std::vector<Candidate> Decode(const DecodeInput& input);
+void ApplyStandalonePreference(const DecodeInput& input, std::vector<Candidate>& candidates);
 std::string ConvertRomaji(const std::string& raw, bool* ok);
+const std::string& NormalizeDictionaryReading(const std::string& kana);
 bool ConvertRomajiChecked(const std::string& raw, std::string* kana);
+bool ContainsLatinName(const std::string& raw);
+bool SplitShortLatinSuffix(const std::string& raw, std::string* prefix, std::string* reading);
 
 // UTF-8文字列の文字種を変換する。vkにはVK_F6～VK_F10を指定する。
 std::string ConvertCharacterClass(const std::string& utf8, int vk_fkey);
@@ -57,7 +64,13 @@ class Session {
   void set_deferred_decoding(bool enabled) { deferred_decoding_ = enabled; }
   DecodeInput decode_input() const;
   bool ApplyCandidates(const DecodeInput& request, std::vector<Candidate> candidates);
+  bool ApplyPendingPreview(const DecodeInput& request, std::vector<Candidate> candidates, uint64_t sequence=0);
+  uint64_t refinement_preview_sequence() const { return refinement_preview_sequence_; }
+  bool ApplyTypingPrefix(const DecodeInput& request, const Candidate& first);
+  bool needs_typing_lookup() const { return !editing_ && (!typing() || preview_lookup_bytes_!=0); }
+  DecodeInput preview_request() const;
   void RefineCandidates();
+  bool typing() const { return phase_ == "typing" && !manual_lock_ && !editing_; }
   void CancelConversion();
   void Reset();
   void PressCharacterClass(int vk);
@@ -102,6 +115,7 @@ class Session {
   }
   bool last_commit_learnable() const { return last_commit_learnable_; }
   bool last_commit_explicit() const { return last_commit_explicit_; }
+  bool last_commit_f10() const { return last_commit_f10_; }
   const std::vector<std::string>& output_log() const { return output_log_; }
   const std::vector<std::string>& learning_log() const { return learning_log_; }
 
@@ -122,8 +136,15 @@ class Session {
   std::string raw_text_;
   size_t raw_cursor_ = 0;
   bool editing_ = false;
+  struct PreviewPrefix {std::string raw, kana, text;};
+  PreviewPrefix last_preview_, stable_preview_;
+  uint64_t preview_epoch_ = 0;
+  size_t preview_lookup_bytes_ = std::string::npos;
+  void ClearPreview() { last_preview_ = {}; stable_preview_ = {}; preview_lookup_bytes_ = std::string::npos; ++preview_epoch_; }
+  bool RememberPreview(const std::string& raw, const Candidate& candidate);
   bool deferred_decoding_ = false;
   bool awaiting_candidates_ = false;
+  uint64_t refinement_preview_sequence_ = 0;
   std::string left_context_;
   std::string right_context_;
   std::string field_ = "prose";
@@ -135,6 +156,7 @@ class Session {
   bool engine_alive_ = true;
   bool last_commit_learnable_ = false;
   bool last_commit_explicit_ = false;
+  bool f10_selected_ = false, last_commit_f10_ = false;
   int selected_index_ = 0;
   // 文節境界はraw_text_のUTF-8バイト位置。先頭は0、末尾は文字列長。
   std::vector<size_t> segment_bounds_;

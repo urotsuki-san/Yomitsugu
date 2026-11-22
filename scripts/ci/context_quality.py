@@ -35,8 +35,11 @@ def romanize(katakana):
 
 
 class Engine:
-    def __init__(self, host):
+    def __init__(self, host, model=None):
         self.profile = tempfile.TemporaryDirectory(prefix="yomitsugu-context-")
+        if model is not None:
+            (Path(self.profile.name) / "settings.json").write_text(json.dumps(
+                {"conversion_model": model, "learning_enabled": False}), encoding="utf-8")
         self.errors = tempfile.TemporaryFile()
         child_read, self.write = os.pipe()
         self.read, child_write = os.pipe()
@@ -66,8 +69,9 @@ class Engine:
             result += part
         return result
 
-    def decode(self, raw, left="", right="", phase="end_of_phrase"):
-        data = json.dumps(dict(version=1, raw=raw, left=left, right=right, phase=phase, field="prose", limit=16)).encode()
+    def decode(self, raw, left="", right="", phase="end_of_phrase", dictionary_preview=False):
+        data = json.dumps(dict(version=1, raw=raw, left=left, right=right, phase=phase, field="prose",
+                               limit=16, dictionary_preview=dictionary_preview)).encode()
         frame = struct.pack("<I", len(data)) + data
         assert os.write(self.write, frame) == len(frame)
         size = struct.unpack("<I", self.receive(4))[0]

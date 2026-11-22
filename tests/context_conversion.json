@@ -35,5 +35,8 @@
   {"index":"context-paper","raw":"kiru","context_text":"この紙を","expected_output":["切る"],"max_rank":1},
   {"index":"context-clothing","raw":"kiru","context_text":"新しい服を","expected_output":["着る"],"max_rank":1},
   {"index":"right-thickness","raw":"atsui","right_context":"本を読んだ。","expected_output":["厚い"]},
-  {"index":"right-temperature","raw":"atsui","right_context":"お茶を飲んだ。","expected_output":["熱い"]}
+  {"index":"right-temperature","raw":"atsui","right_context":"お茶を飲んだ。","expected_output":["熱い"]},
+  {"index":"okurigana-left","raw":"kaitori","context_text":"前回の買取りを確認しました。","expected_output":["買取り"],"max_rank":1},
+  {"index":"okurigana-right","raw":"machiawase","right_context":"。待合せについては資料をご覧ください。","expected_output":["待合せ"],"max_rank":1},
+  {"index":"okurigana-inflection","raw":"machiawase","context_text":"前の待合せを確認しました。","right_context":"られる。","expected_output":["待ち合わせ"],"max_rank":1}
 ]

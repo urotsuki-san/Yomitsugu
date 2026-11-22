@@ -6,9 +6,10 @@ Windows x64、CMake、MSVC、Swift 6.3.3を使います。配布物の生成に�
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci/prepare_runtime.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci/build_hybrid_libraries.ps1
 cmake -S native -B native/build -A x64
 cmake --build native/build --config Release --target app_update_test engine_test debug_dump quality_typo_long release_test ime_mixed_tip ime_engine_host ime_dictionary_tool ime_settings ime_tray ime_profile_control e2e_tip_tests tip_com_smoke
-powershell -NoProfile -File scripts/stage_engine.ps1 -Destination native/build/e2e_out_v13/engine
+powershell -NoProfile -File scripts/stage_engine.ps1 -Destination native/build/e2e_out_v14/engine
 powershell -NoProfile -File scripts/ci/stage_test_runtime.ps1
 ```
 

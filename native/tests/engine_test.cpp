@@ -1,4 +1,5 @@
 #include "ime_engine.h"
+#include "../src/cached_surfaces.h"
 
 #include <algorithm>
 #include <chrono>
@@ -43,6 +44,156 @@ DecodeInput Make(const std::string& raw, const std::string& phase = "end_of_phra
 }
 
 int main() {
+  Expect(Top(Make("Aoba.NeTwotsukau")) == u8"Aoba.NeTを使う",
+         "retain original hostname spelling before a Japanese particle");
+  Expect(ContainsLatinName("kumo.ioheiku") && !ContainsLatinName("asa.konbanha"),
+         "distinguish a romanizable hostname from punctuation between readings");
+  Expect(Top(Make("Aoba.NeTwotsukau", "end_of_phrase", false, "url")) == "Aoba.NeTwotsukau",
+         "retain the entire input in a URL field");
+  {
+    const std::vector<std::string> rows = {u8"今日", {}, std::string("A\0B", 3),
+                                           std::string(70000, 'x'), u8"今日も晴れ"};
+    CachedSurfaces cached(rows);
+    Expect(cached.read(0).empty() && CachedSurfaces({}).read(4).empty(), "empty dictionary cache ranges");
+    for (size_t limit = 1; limit <= rows.size() + 1; ++limit) {
+      const std::vector<std::string> expected(rows.begin(), rows.begin() + std::min(limit, rows.size()));
+      Expect(cached.read(limit) == expected, "dictionary cache retains candidate bytes, order and limit");
+    }
+  }
+
+  for (const char* value : {"C:/tools/z/test.exe", "src/tool/file.txt", "tmp/tools/cache", "git/status", "../docs/readme.md"}) {
+    DecodeInput in; in.raw_text = value;
+    const auto rows = Decode(in);
+    Expect(!rows.empty() && rows.front().output_text == value, "forward-slash path remains literal", value);
+  }
+  {
+    DecodeInput in; in.raw_text = "ko-hiz/ti-";
+    const auto rows = Decode(in);
+    Expect(!rows.empty() && rows.front().output_text.find(u8"・") != std::string::npos,
+           "romaji z slash keeps the middle dot in normal prose");
+  }
+
+  {
+    Candidate japan; japan.output_text=u8"日本";
+    Session edited; edited.set_deferred_decoding(true); edited.Type("nihongo");
+    const auto old = edited.decode_input();
+    edited.Backspace();   // nihong: incomplete syllable
+    Expect(!edited.needs_typing_lookup(),"incomplete deletion skips a discarded worker request");
+    edited.Backspace();   // nihon: complete reading
+    Expect(!edited.ApplyCandidates(old,{japan}) && edited.typing() && edited.needs_typing_lookup() &&
+           edited.ApplyCandidates(edited.preview_request(),{japan}) && edited.visible_text()==u8"日本",
+           "complete tail deletion converts the remaining reading without another letter");
+    edited.PressHome(); edited.DeleteForward();
+    Expect(!edited.typing() && !edited.needs_typing_lookup(),"middle editing keeps the editable caret");
+    for (const std::string name : {"GitHub","Github","github","GITHUB","gItHuB",
+                                   "Google","google","GOOGLE","YouTube","OpenAI","PostgreSQL","Spotify"}) {
+      Expect(Top(Make(name+"wotsukau"))==name+u8"を使う","original spelling before Japanese: "+name);
+      Session preview; preview.set_deferred_decoding(true); preview.Type(name+"wotsu");
+      Expect(preview.visible_text()==name+u8"をつ","immediate mixed-case composition: "+name);
+    }
+    Expect(Top(Make("GitHubActions"))=="GitHubActions" &&
+           Top(Make("GitHubwotsukau","end_of_phrase",false,"code"))=="GitHubwotsukau",
+           "identifier and code fields retain spelling");
+    Expect(Top(Make("google.com"))=="google.com" && Top(Make("google_workspace"))=="google_workspace",
+           "domain and snake case stay literal in prose");
+    Expect(Top(Make("Zyqvexwotsukau"))==u8"Zyqvexを使う" &&
+           !ContainsLatinName("kumawomiru"), "unlisted Latin stem and Japanese homophone");
+  }
+  {
+    const std::string good=R"({"parts":[{"text":"nested","correspondingCount":9}],"text":"top","correspondingCount":1})";
+    auto rows=ParseAzookeyCandidates("["+good+R"(,{"text":"ok","text":[],"correspondingCount":3},{"text":"bad","correspondingCount":1.5},[)"+good+"]]");
+    Expect(rows.size()==1 && rows[0].text=="top" && rows[0].corresponding_count==1,
+           "dictionary reader keeps only valid fields on direct candidate objects");
+    Expect(ParseAzookeyCandidates("["+good+",").empty(),"malformed dictionary reply discards all rows");
+    std::string many="[";
+    for (int i=0;i<260;++i) {if(i)many+=',';many+=good;}
+    Expect(ParseAzookeyCandidates(many+"]").size()==256 && ParseAzookeyCandidates(many+",?]").empty(),
+           "dictionary reader caps retained rows while validating trailing data");
+  }
+  {
+    Candidate japan; japan.output_text=u8"日本"; japan.reading_text=u8"にほん";
+    Session live; live.set_deferred_decoding(true); live.Type("nihon");
+    const auto prefix=live.decode_input();
+    live.Type("g");
+    Expect(live.preview_request().raw_text=="nihon" && live.decode_input().raw_text=="nihong",
+           "background preview uses complete kana and preserves the editable raw input");
+    Expect(!live.ApplyCandidates(prefix,{japan}) && live.ApplyTypingPrefix(prefix,japan) &&
+           live.visible_text()==u8"日本g" && !live.candidates_ready() && !live.needs_typing_lookup(),
+           "late append-only response updates the live prefix without resolving the new revision");
+    live.Type("o");
+    Expect(live.needs_typing_lookup() && live.visible_text()==u8"日本ご","completed kana requests its own conversion");
+    Candidate language; language.output_text=u8"日本語";
+    const auto full=live.decode_input();
+    live.ApplyCandidates(full,{language});
+    Expect(!live.ApplyTypingPrefix(prefix,japan) && live.visible_text()==u8"日本語","newer result wins");
+    live.Type("k");live.Type("y");
+    Expect(live.visible_text()==u8"日本語ky" && !live.needs_typing_lookup(),"unfinished digraph retains kanji");
+    live.RefineCandidates();
+    Expect(live.needs_typing_lookup() && !live.candidates_ready(),"explicit refinement always requests full input");
+    live.Reset();live.Type("aozora");Candidate sky;sky.output_text=u8"青空";
+    Expect(live.ApplyCandidates(live.decode_input(),{sky}),"establish a converted prefix");
+    live.Type("ka");const auto short_reading=live.decode_input();live.Type("ze");
+    Candidate fragment;fragment.output_text=u8"青空蚊";
+    Expect(!live.ApplyTypingPrefix(short_reading,fragment) && live.visible_text()==u8"青空かぜ",
+           "a stale spelling for a lone kana does not overwrite the continued word");
+    fragment.output_text=u8"青空ka";
+    Expect(!live.ApplyTypingPrefix(short_reading,fragment) && live.visible_text()==u8"青空かぜ",
+           "a stale residual romaji fragment does not replace a complete reading");
+    Candidate wind;wind.output_text=u8"青空風";
+    Expect(live.ApplyCandidates(live.decode_input(),{wind}) && live.visible_text()==u8"青空風",
+           "the full current reading still updates normally");
+    live.Reset();live.Type("nihong");
+    Expect(!live.ApplyTypingPrefix(prefix,japan),"old composition never supplies a new prefix");
+    live.Reset();live.Type("nihon");const auto before=live.decode_input();live.Type("g");live.Backspace();live.Type("g");
+    Expect(!live.ApplyTypingPrefix(before,japan),"delete and retype invalidate the old request");
+    live.Reset();live.Type("nihon");const auto ambiguous=live.decode_input();live.Type("a");
+    Expect(!live.ApplyTypingPrefix(ambiguous,japan),"an n reinterpreted as na is not a matching kana prefix");
+    live.Reset();live.Type("nihon");const auto context=live.decode_input();live.Type("g");live.set_context("","x");
+    Expect(!live.ApplyTypingPrefix(context,japan),"context change rejects late preview");
+    live.set_field("identifier");live.Type("o");
+    Expect(!live.ApplyTypingPrefix(context,japan),"identifier field rejects late preview");
+  }
+  {
+    for (const auto& item : std::vector<std::pair<std::string,std::string>>{
+             {"kyou,ame",u8"今日、雨"},{"[kyou]",u8"「今日」"}}) {
+      Session live;live.set_deferred_decoding(true);live.Type(item.first);
+      const auto preview=live.preview_request();Candidate first;first.output_text=item.second;
+      live.Type("g");
+      Expect(live.ApplyTypingPrefix(preview,first) && live.visible_text()==item.second+"g",
+             "a delayed Japanese prefix survives punctuation: "+item.first);
+      live.Type("a");
+      Expect(live.visible_text()==item.second+u8"が","punctuated prefix stays visible across keys");
+    }
+    Session live;live.set_deferred_decoding(true);live.Type("hashi");
+    const auto typing=live.decode_input();
+    live.RefineCandidates();
+    Candidate dictionary;dictionary.output_text=u8"橋";
+    Candidate neural;neural.output_text=u8"箸";
+    Expect(live.ApplyPendingPreview(typing,{dictionary}) && live.visible_text()==u8"橋" &&
+           !live.candidates_ready(),"exact last preview can display while full conversion remains pending");
+    const auto full=live.decode_input();
+    Candidate interim;interim.output_text=u8"端";
+    auto stale=full;stale.context_generation++;
+    Expect(!live.ApplyPendingPreview(stale,{interim},1),"intermediate from another context rejected");
+    stale=full;stale.interaction_generation++;
+    Expect(!live.ApplyPendingPreview(stale,{interim},1),"intermediate from another interaction rejected");
+    Expect(live.ApplyPendingPreview(full,{interim},1) && live.visible_text()==u8"端" && !live.candidates_ready() &&
+           !live.ApplyPendingPreview(typing,{dictionary}),"neural intermediate precedes a late typing reply");
+    Expect(live.ApplyPendingPreview(full,{neural},2) && !live.ApplyPendingPreview(full,{interim},1) &&
+           live.visible_text()==u8"箸" && !live.candidates_ready(),"newest neural intermediate stays provisional");
+    auto selected=live;selected.PressSpace();
+    Expect(!selected.ApplyPendingPreview(full,{dictionary},3) &&
+           !selected.ApplyPendingPreview(selected.decode_input(),{dictionary},3),"selection protects visible candidate");
+    auto provisional=live;provisional.PressEnter();
+    Expect(!provisional.last_commit_learnable() && provisional.learning_log().empty(),
+           "an automatically committed intermediate cannot train the IME");
+    Expect(live.ApplyCandidates(live.decode_input(),{neural}) && live.candidates_ready() &&
+           !live.ApplyPendingPreview(typing,{dictionary}) && !live.ApplyPendingPreview(full,{interim},3) &&
+           live.visible_text()==u8"箸",
+           "late dictionary text cannot replace a resolved full result");
+    live.Type("wo");live.RefineCandidates();
+    Expect(!live.ApplyPendingPreview(typing,{dictionary}),"old revision cannot supply a pending preview");
+  }
   {
     bool ok = false;
     std::string kana = ConvertRomaji("konnitiwa", &ok);
@@ -207,6 +358,17 @@ int main() {
     } else {
       std::printf("[SKIP] azookey-engine.dll not found; bridge inactive\n");
     }
+  }
+
+  {
+    std::string paragraph;
+    for (int i = 0; i < 40; ++i) paragraph += "nihongo";
+    const auto parts = Decode(Make(paragraph));
+    Expect(!parts.empty() && !parts.front().output_text.empty(), "long prose returns a conversion");
+    Expect(Top(Make("editor.team+ime@research.example.jp")) == "editor.team+ime@research.example.jp",
+           "dotted email and plus suffix retain their complete spelling");
+    Expect(Top(Make("HTTPS://Example.org/LongPath")) == "HTTPS://Example.org/LongPath",
+           "mixed-case URL scheme is protected");
   }
 
   // 表示遅延の測定。

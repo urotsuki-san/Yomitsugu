@@ -2,14 +2,16 @@
 $taskRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $taskPackage = Join-Path $taskRoot 'dist/yomitsugu-0.2.10-preview'
 $taskManifest = Get-Content -LiteralPath (Join-Path $taskPackage 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-if ($taskManifest.version -ne '0.2.10-preview' -or $taskManifest.architecture -ne 'x64') { throw 'Manifest version or architecture mismatch' }
+if ($taskManifest.version -ne '0.2.10-hybrid.12' -or $taskManifest.architecture -ne 'x64') { throw 'Manifest version or architecture mismatch' }
 if ((Get-FileHash -LiteralPath (Join-Path $taskRoot 'RELEASE.md') -Algorithm SHA256).Hash -ne
     (Get-FileHash -LiteralPath (Join-Path $taskPackage 'README.md') -Algorithm SHA256).Hash) {
     throw 'Packaged README differs from RELEASE.md'
 }
 $taskCritical = @('ime_mixed_tip_v14.dll','ime_dictionary_tool.exe','ime_settings.exe','ime_tray.exe','install_preview.ps1','uninstall_preview.ps1','THIRD_PARTY.md','LICENSE',
   'update_public_dictionary.ps1','PublicDictionaryBuilder.cs','licenses/public-dictionary-NOTICE',
-  'engine/ime_engine_host.exe','engine/public_dictionary.tsv','engine/public_dictionary.sources.json')
+  'engine/ime_engine_host.exe','engine/public_dictionary.tsv','engine/public_dictionary.sources.json',
+  'engine/models/zenz-v3.2-xsmall-Q5_K_M.gguf','engine/models/ggml-model-Q5_K_M.gguf',
+  'engine/models/jinen-v2-xsmall-Q5_K_M.gguf','engine/models/iroha-kkc-v1-Q5_K_M.gguf','HYBRID-NOTICE.md','licenses/iroha-model-LICENSE')
 foreach ($taskName in $taskCritical) {
     if (-not (Test-Path -LiteralPath (Join-Path $taskPackage $taskName))) { throw "Critical package asset missing: $taskName" }
 }
