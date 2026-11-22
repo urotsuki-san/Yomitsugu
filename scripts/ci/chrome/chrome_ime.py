@@ -173,19 +173,26 @@ def observe_row(pid,index):
         return {"expected":index,"observed":candidate_list(pid,include_hidden=True),"visible":False}
 
 def enter_commit(events,field,marker):
-    # The only input sent in this interval is physical VK_RETURN via SendInput.
-    # Blink queues compositionend; its isTrusted flag can be false even as the
-    # surrounding native keydown, input and keyup have isTrusted=true.
-    matching=[e for e in events if e["field"]==field]
-    criteria=[lambda e:e["type"]=="keydown" and e["trusted"],
-              lambda e:e["type"]=="input" and e["trusted"] and e["value"]==marker,
-              lambda e:e["type"]=="compositionend" and e["data"]==marker and e["value"]==marker,
-              lambda e:e["type"]=="keyup" and e["trusted"]]
-    found=[]
-    for event in matching:
-        if criteria[len(found)](event):
-            found.append(event)
-            if len(found)==len(criteria):return found
+    # Only physical VK_RETURN is sent in this interval. A deferred TSF edit
+    # can reach Blink after keyup; compositionend must still follow input.
+    found = {}
+    for index, event in enumerate(events):
+        if event["field"] != field:
+            continue
+        kind = event["type"]
+        if kind == "keydown" and event["trusted"]:
+            if event.get("key") not in ("Enter", "Process") or "keydown" in found:
+                return None
+            found[kind] = (index, event)
+        elif "keydown" in found:
+            if kind == "keyup" and event["trusted"] and event.get("key") in ("Enter", "Process"):
+                found.setdefault(kind, (index, event))
+            elif kind == "input" and event["trusted"] and event["value"] == marker:
+                found[kind] = (index, event)
+            elif kind == "compositionend" and "input" in found and event["data"] == event["value"] == marker:
+                found[kind] = (index, event)
+        if len(found) == 4:
+            return [item for _, item in sorted(found.values())]
     return None
 
 def shift_key(pid,vk,scan):
