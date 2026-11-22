@@ -144,6 +144,27 @@ def mode_status():
     if not send(wnd,0x283,5,0,2,300,ctypes.byref(result)):return None
     return result.value
 
+def candidate_list(pid):
+    # The production UI uses a standard LISTBOX. Read numeric state only.
+    user=ctypes.windll.user32
+    find=user.FindWindowExW
+    find.argtypes=[wt.HWND,wt.HWND,wt.LPCWSTR,wt.LPCWSTR]
+    find.restype=wt.HWND
+    user.IsWindowVisible.argtypes=[wt.HWND]
+    hwnd=0
+    while hwnd:=find(None,hwnd,"ImeMixedCandidateWindow","変換候補"):
+        owner=wt.DWORD()
+        user.GetWindowThreadProcessId(hwnd,ctypes.byref(owner))
+        if owner.value!=pid or not user.IsWindowVisible(hwnd):continue
+        box=find(hwnd,0,"LISTBOX",None)
+        if not box:continue
+        send=user.SendMessageTimeoutW
+        send.argtypes=[wt.HWND,wt.UINT,wt.WPARAM,wt.LPARAM,wt.UINT,wt.UINT,ctypes.POINTER(ctypes.c_size_t)]
+        count,idx=ctypes.c_size_t(),ctypes.c_size_t()
+        if send(box,0x18b,0,0,2,200,ctypes.byref(count)) and send(box,0x188,0,0,2,200,ctypes.byref(idx)):
+            return {"count":count.value,"selected":ctypes.c_ssize_t(idx.value).value}
+    return None
+
 def shift_key(pid,vk,scan):
     key(pid,0x10,0x2a,False)
     try:
@@ -169,6 +190,18 @@ def chrome_executable(specified):
     for base in (os.environ.get("ProgramFiles(x86)"),os.environ.get("ProgramFiles")):
         if base and (p:=Path(base)/"Google/Chrome/Application/chrome.exe").is_file():return p
     raise FileNotFoundError("Chrome executable")
+
+def taskbar_audit(result_file,click=False):
+    path=result_file.with_name("taskbar-click.json" if click else "taskbar.json")
+    args=["powershell.exe","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",
+          str(HERE/"taskbar.ps1"),"-Result",str(path)]
+    if click:args.append("-Click")
+    try:
+        subprocess.run(args,creationflags=CREATE,check=True,timeout=15)
+        return json.loads(path.read_text(encoding="utf-8-sig")).get("outcome")
+    except (OSError,subprocess.SubprocessError,ValueError) as error:
+        print("Taskbar observation:",error,flush=True)
+        return None
 
 def smoke(chrome,profile):
     page=(HERE/"fields.html").resolve().as_uri()
@@ -196,6 +229,7 @@ def guest(chrome,profile,expected_hash,selector,result_file):
             p=subprocess.Popen([chrome,"--new-window","--start-maximized","--force-renderer-accessibility","--user-data-dir="+str(profile),*FLAGS,url],
                                cwd=HERE,creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS)
             changes=[]
+            selections=[]
             stage="Chrome startup"
             try:
                 wait(lambda:snapshot().get("active")=="query" and foreground_pid()==p.pid,
@@ -203,6 +237,7 @@ def guest(chrome,profile,expected_hash,selector,result_file):
                 stage="profile selection"
                 subprocess.run([str(selector),str(p.pid)],check=True,timeout=10)
                 wait(lambda:loaded_tip(p.pid,tip),"The registered TIP is not loaded in this browser")
+                taskbar_audit(result_file)
                 for idx,field in enumerate(("query","body")):
                     stage=field+" direct after IME_OFF"
                     tap(p.pid,0x1A)  # VK_IME_OFF
@@ -221,12 +256,15 @@ def guest(chrome,profile,expected_hash,selector,result_file):
                     tap(p.pid,0x09)
                     if snapshot()["active"]!=field:raise RuntimeError("Candidate Tab moved focus")
                     tap(p.pid,0x09)
-                    other=wait(lambda:(s:=snapshot())["active"]==field and s["values"][idx] not in ("",marker) and s,
+                    wait(lambda:(s:=snapshot())["active"]==field and s["values"][idx] not in ("",marker) and s,
                                "Second Tab did not choose another candidate")
+                    chosen=wait(lambda:(c:=candidate_list(p.pid)) and c["selected"]==1 and c,"Second Tab did not select row two")
                     key(p.pid,0x10,0x2a,False)
                     tap(p.pid,0x09)
                     key(p.pid,0x10,0x2a,True)
                     wait(lambda:snapshot()["values"][idx]==marker,"Shift+Tab did not restore the first candidate")
+                    restored=wait(lambda:(c:=candidate_list(p.pid)) and c["selected"]==0 and c,"Shift+Tab did not select row one")
+                    selections.append({"field":field,"next":chosen,"previous":restored})
                     stage=field+" Enter"
                     tap(p.pid,0x0D)
                     wait(lambda:any(e["field"]==field and e["type"]=="compositionend" and e["trusted"]
@@ -249,12 +287,29 @@ def guest(chrome,profile,expected_hash,selector,result_file):
                 for field in ("query","body"):
                     if not any(e["field"]==field and e["trusted"] and e["type"]=="compositionstart" for e in last["events"]):
                         raise RuntimeError("No trusted compositionstart for "+field)
-                return {"mode":"guest native","browser":str(chrome),"tip":str(tip),"tip_sha256":expected_hash,
-                        "marker":marker,"verified_foreground_pid":p.pid,"shift_mode_transitions":changes,"trace":last}
+                taskbar_result={"action":"unavailable","opened_input":None}
+                key(p.pid,0x10,0x2a,False)
+                tap(p.pid,0x09)
+                key(p.pid,0x10,0x2a,True)
+                if snapshot()["active"]=="body":
+                    action=taskbar_audit(result_file,click=True)
+                    taskbar_result["action"]=action
+                    if action=="入力モードボタンをInvoke" and foreground_pid()==p.pid:
+                        begin=len(snapshot()["events"])
+                        tap(p.pid,ord("K"))
+                        tap(p.pid,ord("A"))
+                        taskbar_result["opened_input"]=any(e["type"]=="compositionstart" and e["trusted"]
+                                                          for e in snapshot()["events"][begin:])
+                        tap(p.pid,0x1b)
+                return {"mode":"hosted runner native","browser":str(chrome),"tip":str(tip),"tip_sha256":expected_hash,
+                        "marker":marker,"verified_foreground_pid":p.pid,"shift_mode_transitions":changes,
+                        "tab_candidates":selections,"taskbar":taskbar_result,"trace":last}
             except Exception as error:
                 if result_file:
+                    taskbar_audit(result_file)
                     result_file.write_text(json.dumps({"failed":stage,"error":str(error),"foreground":foreground_pid(),
-                        "test_pid":p.pid,"mode_status":mode_status(),"shift_mode_transitions":changes,"trace":snapshot()},
+                        "test_pid":p.pid,"mode_status":mode_status(),"candidates":candidate_list(p.pid),
+                        "tab_candidates":selections,"shift_mode_transitions":changes,"trace":snapshot()},
                         ensure_ascii=False,indent=2),encoding="utf8")
                 raise
             finally:
@@ -287,6 +342,7 @@ def main():
     args=cli.parse_args()
     if args.native:
         if not hosted_runner():raise SystemExit("Native key test requires a GitHub-hosted test runner")
+        if not args.result:cli.error("a result path is required")
         if not args.selector or not args.selector.is_file():cli.error("profile selector executable required")
         if not re.fullmatch("[0-9a-fA-F]{64}",args.expected_tip_sha256 or ""):
             cli.error("supply the SHA-256 of the intended candidate DLL")

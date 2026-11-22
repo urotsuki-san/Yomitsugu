@@ -208,7 +208,7 @@ HRESULT TextService::EditEnd(TfEditCookie ec, ITfContext*, bool commit) {
 }
 
 HRESULT TextService::ApplyState(TfEditCookie ec, ITfContext* pic, const ime::DecodeInput& expected,
-                               const ime::Session& next, const std::string& text, bool finish, bool cancel, uint64_t retry_token) {
+                               ime::Session& next, const std::string& text, bool finish, bool cancel, uint64_t retry_token) {
   const auto now = session_.decode_input();
   if (!activated_ || pic != context_ || now.revision != expected.revision ||
       now.context_generation != expected.context_generation ||
@@ -266,7 +266,14 @@ HRESULT TextService::ApplyState(TfEditCookie ec, ITfContext* pic, const ime::Dec
     }
   }
   HRESULT hr = S_OK;
-  if (!cancel) hr = EditSetText(ec, pic, text, finish ? text : next.caret_prefix());
+  if (!cancel) {
+    // Tab can arrive after the worker reply but before Chrome grants the edit.
+    const bool moved = !finish && session_.is_converting() && !session_.candidates_ready() &&
+        next.candidates_ready() && next.interaction_generation() == now.interaction_generation &&
+        next.SelectPendingTab(session_.pending_tab_steps());
+    if (moved) hr = EditSetText(ec, pic, next.visible_text(), next.caret_prefix());
+    else hr = EditSetText(ec, pic, text, finish ? text : next.caret_prefix());
+  }
   if (SUCCEEDED(hr) && (finish || cancel)) hr = EditEnd(ec, pic, !cancel);
   if (FAILED(hr)) return hr;
   const bool selected_conversion = session_.candidates_ready() && session_.selected_index() >= 0 &&
@@ -320,7 +327,7 @@ HRESULT TextService::ApplyState(TfEditCookie ec, ITfContext* pic, const ime::Dec
 HRESULT TextService::RequestState(ITfContext* pic, const ime::Session& next, const std::string& text,
                                  bool finish, bool cancel, bool async) {
   if (!pic) return E_INVALIDARG;
-  const bool applying_final=async && !finish && !cancel && !next.typing() && !next.is_converting() &&
+  const bool applying_final=async && !finish && !cancel && !next.typing() &&
       next.candidates_ready() && next.revision()==session_.revision() &&
       next.context_generation()==session_.context_generation() &&
       next.interaction_generation()==session_.interaction_generation();
@@ -335,8 +342,7 @@ HRESULT TextService::RequestState(ITfContext* pic, const ime::Session& next, con
   // TSF can hold the document lock after the worker has finished. Keep the
   // confirmed first candidate available to Enter until this edit is applied.
   const auto status=FAILED(hr) ? hr : result;
-  if (!finish && !cancel && async && next.candidates_ready() && !next.typing() &&
-      !next.is_converting() && !next.candidates().empty()) {
+  if (applying_final && !next.candidates().empty()) {
     const auto make_final=[&] {
       return QueuedFinal{next.revision(),next.context_generation(),next.interaction_generation(),
                          next.candidates().front()};
@@ -344,6 +350,10 @@ HRESULT TextService::RequestState(ITfContext* pic, const ime::Session& next, con
     if (status==TF_S_ASYNC) {
       queued_final_.emplace(make_final());
       queued_final_->retry_token=token;
+      if (next.is_converting()) {
+        queued_final_->retry_candidates=next.candidates();
+        queued_final_->retry_at=~ULONGLONG{0};
+      }
     } else if ((status==E_FAIL || status==TF_E_LOCKED || status==TF_E_SYNCHRONOUS) &&
                pic==context_ && session_.revision()==next.revision() &&
                session_.context_generation()==next.context_generation() &&
@@ -444,8 +454,11 @@ HRESULT TextService::FinishPendingCommit(bool async) {
   if (!pending_commit_ || !context_) return S_FALSE;
   if (async && commit_edit_revision_ == session_.revision()) return TF_S_ASYNC;
   auto next = session_;
-  if (!next.candidates_ready() && HasQueuedFinal())
-    next.ApplyCandidates(next.decode_input(),{queued_final_->first});
+  if (!next.candidates_ready() && HasQueuedFinal()) {
+    if (queued_final_->retry_candidates.empty())
+      next.ApplyCandidates(next.decode_input(), {queued_final_->first});
+    else next.ApplyCandidates(next.decode_input(), queued_final_->retry_candidates);
+  }
   auto text = next.visible_text(); next.PressEnter();
   commit_edit_revision_ = session_.revision();
   auto hr = RequestState(context_, next, text, true, false, async);
@@ -790,7 +803,10 @@ void TextService::ReloadInputPreferences() {
   const auto next = preferences_directory_.empty() ? ime::InputPreferences{} :
                     ime::ReadInputPreferences(preferences_directory_);
   const auto old = input_preferences_.mode_shortcut;
+  const bool tab_changed = next.tab_candidates != input_preferences_.tab_candidates;
   input_preferences_ = next;
+  if (tab_changed && IsWindowVisible(cand_window_.hwnd()))
+    InvalidateRect(cand_window_.hwnd(), nullptr, FALSE);
   const auto& key = next.mode_shortcut;
   if (activated_ && old.mode == key.mode && old.virtual_key == key.virtual_key &&
       old.modifiers == key.modifiers) return;
@@ -1080,6 +1096,11 @@ HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, LPARAM flags, BOOL* 
     if (FinishPendingCommit(false) != S_OK) { *eaten = TRUE; return S_OK; }
     composing = false; converting = false;
     if (operation || candidate_key) return S_OK;
+  }
+  if (key == VK_TAB && converting && !session_.candidates_ready()) {
+    session_.PressTab(shift);
+    *eaten = TRUE;
+    return S_OK;
   }
   auto next = session_; bool finish = false, cancel = false;
   if (!append.empty()) {

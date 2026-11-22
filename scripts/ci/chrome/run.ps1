@@ -29,5 +29,12 @@ Get-WinUserLanguageList | Out-String | Write-Host
 Get-Process -Id $PID | Select-Object ProcessName,SessionId
 Get-Process -Name explorer,ctfmon -ErrorAction SilentlyContinue | Select-Object ProcessName,SessionId
 $hash=(Get-FileHash $dll).Hash
+$chromePath=@($env:ProgramFiles, ${env:ProgramFiles(x86)}) | ForEach-Object { Join-Path $_ 'Google/Chrome/Application/chrome.exe' } | Where-Object { Test-Path -LiteralPath $_ } | Select-Object -First 1
+$worker=Join-Path $root 'engine/ime_engine_host.exe'
+@{source=$env:GITHUB_SHA; image=$env:ImageVersion; os=[Environment]::OSVersion.Version.ToString()
+  chrome=(Get-Item $chromePath).VersionInfo.ProductVersion; installed=$tag; tip_sha256=$hash
+  worker_sha256=(Get-FileHash $worker).Hash; settings_sha256=(Get-FileHash (Join-Path $root 'ime_settings.exe')).Hash
+  models=@(Get-ChildItem (Join-Path $root 'engine/models') -File -Recurse | Select-Object Name,Length)
+} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $result 'environment.json') -Encoding utf8
 python -I -B -X utf8 scripts/ci/chrome/chrome_ime.py --native --expected-tip-sha256 $hash --selector build/Release/chrome_select_profile.exe --result "$result/native.json"
 exit $LASTEXITCODE

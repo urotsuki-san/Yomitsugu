@@ -110,9 +110,10 @@ class TextService : public ITfTextInputProcessorEx,
   HRESULT EditSetText(TfEditCookie ec, ITfContext* pic, const std::string& utf8, const std::string& caret);
   HRESULT EditEnd(TfEditCookie ec, ITfContext* pic, bool commit);
   HRESULT ApplyState(TfEditCookie ec, ITfContext* pic, const ime::DecodeInput& expected,
-                    const ime::Session& next, const std::string& text, bool finish, bool cancel, uint64_t retry_token=0);
+                    ime::Session& next, const std::string& text, bool finish, bool cancel, uint64_t retry_token=0);
   void PollEngine();
   void ReloadInputPreferences();
+  bool TabSelectsCandidates() const { return input_preferences_.tab_candidates; }
   STDMETHODIMP OnChange(REFGUID compartment) override;
   bool KeyboardOpen() const;
   HRESULT SetKeyboardOpen(bool open);
