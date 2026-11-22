@@ -13,13 +13,13 @@ $taskClsid='Registry::HKEY_CLASSES_ROOT\CLSID\{8F3A1C2E-4B5D-4E6F-8A9B-0C1D2E3F4
 $taskUpdater=Join-Path $taskRoot 'native/build/Release/app_update_test.exe'
 
 # 旧版へ辞書と学習を置き、新版インストーラーによる引き継ぎを確認する。
-$taskOldSetup=Join-Path $taskAudit 'Yomitsugu-0.2.9-preview-x64-setup.exe'
-Invoke-WebRequest 'https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.9-preview.1/Yomitsugu-0.2.9-preview-x64-setup.exe' -OutFile $taskOldSetup
+$taskOldSetup=Join-Path $taskAudit 'Yomitsugu-0.2.10-preview-x64-setup.exe'
+Invoke-WebRequest 'https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.10-preview.1/Yomitsugu-0.2.10-preview-x64-setup.exe' -OutFile $taskOldSetup
 $taskOldHash=(Get-FileHash -LiteralPath $taskOldSetup -Algorithm SHA256).Hash
-if($taskOldHash -ne 'B4F80DA9431B77386EAE2C2FEAF10C828EEC861E7B6CAC2E5F02387EEC1217D8'){throw 'Previous installer hash mismatch'}
+if($taskOldHash -ne 'B7BBF833245E521C6C2599C8A5411074154C7BC0E546D4611915367CE172C2C8'){throw 'Previous installer hash mismatch'}
 $taskOldInstall=Start-Process -FilePath $taskOldSetup -ArgumentList '/VERYSILENT /SUPPRESSMSGBOXES /NORESTART' -WindowStyle Hidden -PassThru -Wait
 if($taskOldInstall.ExitCode -ne 0){throw 'Previous installer failed'}
-$taskOldDll=Join-Path $env:ProgramFiles 'Yomitsugu/0.2.9-preview/ime_mixed_tip_v13.dll'
+$taskOldDll=Join-Path $env:ProgramFiles 'Yomitsugu/0.2.10-preview/ime_mixed_tip_v14.dll'
 if((Get-Item -LiteralPath $taskClsid).GetValue('') -ne $taskOldDll){throw 'Previous registration missing'}
 $taskProfile=Join-Path $env:LOCALAPPDATA 'ImeMixed'
 [IO.Directory]::CreateDirectory($taskProfile) | Out-Null
@@ -48,7 +48,7 @@ if($taskRegistered -ne $taskDll -or $taskRunning.Count -ne 0){throw 'Installer d
 foreach($taskName in $taskProfileHashes.Keys){
     if((Get-FileHash -LiteralPath (Join-Path $taskProfile $taskName) -Algorithm SHA256).Hash -ne $taskProfileHashes[$taskName]){throw ('Upgrade changed user data: '+$taskName)}
 }
-Write-Output 'PASS Updater upgraded 0.2.9 to 0.2.10 and preserved dictionary, settings, and learning'
+Write-Output 'PASS Updater upgraded Preview 1 to Preview 2 and preserved dictionary, settings, and learning'
 python (Join-Path $PSScriptRoot 'installed_conversion.py') (Join-Path $taskInstallDir 'engine/ime_engine_host.exe')
 if($LASTEXITCODE -ne 0){throw 'Installed engine conversion failed'}
 $taskDriver=Join-Path $taskRoot 'native/build/e2e_out_v14/e2e_tip_tests.exe'
@@ -68,5 +68,5 @@ foreach($taskCase in @(@{name='full';arguments=@()},@{name='reported';arguments=
     if($taskProcess.ExitCode -ne 0){$taskLines}else{$taskLines | Select-String 'PASS|FAIL|E2E done|TIPDIAG'}
     $taskResults+=@{name=$taskCase.name;exit=$taskProcess.ExitCode;summary=($taskLines | Select-String 'E2E done').Line}
 }
-@{installer_sha256=$taskHash;registered_dll=$taskRegistered;upgraded_from='0.2.9-preview';profile_preserved=$true;tests=$taskResults} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $taskAudit 'result.json') -Encoding UTF8
+@{installer_sha256=$taskHash;registered_dll=$taskRegistered;upgraded_from='v0.2.10-preview.1';profile_preserved=$true;tests=$taskResults} | ConvertTo-Json -Depth 4 | Set-Content -LiteralPath (Join-Path $taskAudit 'result.json') -Encoding UTF8
 if(@($taskResults | Where-Object {$_.exit -ne 0}).Count){throw 'Installed input E2E failed'}
