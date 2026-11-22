@@ -1,4 +1,7 @@
 #include "tip.h"
+#include <ime.h>
+#include "input_mode_menu.h"
+#include <ctffunc.h>
 #include "fake_thread_manager.h"
 #include "fake_context.h"
 #include <psapi.h>
@@ -53,7 +56,161 @@ int PipeHost(int argc, wchar_t** argv) {
 }
 
 struct TipStabilityTest {
+  static void TestInputMode() {
+    ITfThreadMgrEx* manager = nullptr;
+    HRESULT hr = CoCreateInstance(CLSID_TF_ThreadMgr, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(&manager));
+    TfClientId client = TF_CLIENTID_NULL;
+    if (SUCCEEDED(hr))
+      hr = manager->ActivateEx(&client, TF_TMAE_NOACTIVATETIP | TF_TMAE_NOACTIVATEKEYBOARDLAYOUT);
+    Check(hr == S_OK, "create isolated Windows text-services thread");
+    if (FAILED(hr)) { if (manager) manager->Release(); return; }
+
+    TextService service;
+    const auto profile = std::filesystem::temp_directory_path() /
+        (L"YomitsuguKeyTest-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(GetTickCount64()));
+    if (!std::filesystem::create_directory(profile)) {
+      Check(false, "create isolated shortcut profile");
+      manager->Deactivate(); manager->Release(); return;
+    }
+    service.preferences_directory_ = profile;
+    // The isolated desktop has no interactive shell to host a language bar.
+    // Use Windows' actual thread compartment, with a local keystroke manager.
+    FakeThreadManager key_manager;
+    key_manager.compartment_provider = manager;
+    hr = service.Activate(&key_manager, client);
+    Check(hr == S_OK && service.keyboard_open_, "attach input service to the Windows compartment");
+    if (SUCCEEDED(hr)) service.input_mode_menu_ = new InputModeMenu(service);
+    if (SUCCEEDED(hr) && service.keyboard_open_ && service.input_mode_menu_) {
+      auto* button = service.input_mode_menu_;
+      auto shows = [&](const wchar_t* expected) {
+        BSTR text = nullptr;
+        HRESULT result = button->GetText(&text);
+        bool matches = result == S_OK && text && wcscmp(text, expected) == 0;
+        SysFreeString(text);
+        return matches;
+      };
+      TF_LANGBARITEMINFO info{};
+      Check(button->GetInfo(&info) == S_OK && (info.dwStyle & TF_LBI_STYLE_BTN_BUTTON) &&
+            (info.dwStyle & TF_LBI_STYLE_BTN_MENU), "shell can dispatch both a click and the menu");
+      VARIANT original{};
+      service.keyboard_open_->GetValue(&original);
+      VARIANT off{}; off.vt = VT_I4; off.lVal = 0;
+      Check(service.keyboard_open_->SetValue(client, &off) == S_OK && shows(L"A"),
+            "externally closed IME shows A");
+      FakeContext context;
+      BOOL eaten = FALSE;
+      service.OnTestKeyDown(&context, 'K', 0, &eaten);
+      Check(!eaten, "closed IME passes ordinary letters");
+      Check(button->OnClick(TF_LBI_CLK_LEFT, {}, nullptr) == S_OK && shows(L"あ"),
+            "one click reopens Japanese input");
+      service.OnTestKeyDown(&context, 'K', 0, &eaten);
+      Check(eaten, "reopened IME accepts romaji");
+      Check(button->OnClick(TF_LBI_CLK_LEFT, {}, nullptr) == S_OK && shows(L"A"),
+            "second click restores direct input");
+      service.OnTestKeyDown(&context, VK_DBE_DBCSCHAR, 0, &eaten);
+      Check(eaten && shows(L"A"), "testing a half/full-width key has no side effect");
+      service.OnKeyDown(&context, VK_DBE_DBCSCHAR, 0, &eaten);
+      Check(eaten && shows(L"あ"), "half/full-width key opens a closed IME");
+      service.OnKeyDown(&context, VK_DBE_DBCSCHAR, 1L << 30, &eaten);
+      Check(eaten && shows(L"あ"), "holding the key does not toggle repeatedly");
+      service.OnKeyDown(&context, VK_DBE_SBCSCHAR, 0, &eaten);
+      Check(eaten && shows(L"A"), "half/full-width key switches back to direct input");
+      service.OnKeyDown(&context, VK_IME_ON, 0, &eaten);
+      Check(eaten && shows(L"あ"), "dedicated IME on key restores Japanese");
+      service.OnKeyDown(&context, VK_IME_OFF, 0, &eaten);
+      Check(eaten && shows(L"A"), "dedicated IME off key restores direct input");
+      BYTE previous[256]{};
+      if (GetKeyboardState(previous)) {
+        BYTE keys[256]{};
+        keys[VK_SHIFT] = keys[VK_LSHIFT] = 0x80;
+        SetKeyboardState(keys); // scoped to this test thread's input queue
+        service.OnKeyDown(&context, VK_CAPITAL, 0, &eaten);
+        Check(eaten && shows(L"あ"), "Shift plus Caps Lock opens Japanese input");
+        service.OnKeyDown(&context, VK_IME_OFF, 0, &eaten);
+        Check(eaten && shows(L"A"), "Shift plus dedicated alphanumeric key toggles input");
+        service.OnKeyDown(&context, 'A', 0, &eaten);
+        Check(!eaten && shows(L"A"), "capital A stays an ordinary character in direct input");
+        service.OnKeyDown(&context, VK_DBE_ALPHANUMERIC, 0, &eaten);
+        Check(eaten && shows(L"あ"), "Shift plus translated alphanumeric key reopens Japanese");
+        key_manager.accept_shortcuts = true;
+        service.RegisterModeShortcuts();
+        Check(key_manager.shortcuts > 0, "register Windows mode shortcuts");
+        service.OnKeyDown(&context, VK_CAPITAL, 0, &eaten);
+        Check(eaten && shows(L"あ"), "registered chord waits for key-up without toggling twice");
+        service.OnPreservedKey(&context, key_manager.last_shortcut, &eaten);
+        Check(eaten && shows(L"A"), "Windows shortcut notification switches mode once");
+        service.OnPreservedKey(&context, key_manager.last_shortcut, &eaten);
+        Check(eaten && shows(L"あ"), "next Windows shortcut reopens Japanese input");
+        SetKeyboardState(previous);
+      }
+      service.OnTestKeyDown(&context, VK_TAB, 0, &eaten);
+      Check(!eaten, "Tab passes to the application when no text is being composed");
+      service.context_ = &context; context.AddRef();
+      service.session_.Type("kana");
+      service.OnTestKeyDown(&context, VK_TAB, 0, &eaten);
+      Check(eaten, "Tab stays in the field while composing");
+      auto& edit = service.session_;
+      edit.PressTab(false);
+      Check(edit.is_converting() && !edit.candidates_ready(), "first Tab requests candidates");
+      const auto request = edit.decode_input();
+      edit.PressTab(false);
+      const std::vector<ime::Candidate> choices{{u8"かな", u8"かな", false}, {u8"仮名", u8"かな", false}};
+      auto reversed = edit;
+      reversed.PressTab(true);
+      reversed.PressTab(true);
+      Check(reversed.ApplyCandidates(request, choices) && reversed.selected_index() == 1,
+            "queued reverse Tab wraps from the first candidate");
+      Check(edit.ApplyCandidates(request, choices), "repeated Tab before reply still accepts full candidates");
+      Check(edit.visible_text() == u8"仮名", "second Tab selects the next candidate when the worker replies");
+      edit.PressTab(true);
+      Check(edit.visible_text() == u8"かな", "Shift Tab returns to the previous candidate");
+      edit.PressTab(false);
+      Check(edit.visible_text() == u8"仮名", "Tab selects the next available candidate");
+      edit.PressEnter();
+      Check(!edit.composing(), "Enter commits the selected Tab candidate");
+      service.context_->Release(); service.context_ = nullptr;
+      ime::InputPreferences disabled{};
+      disabled.mode_shortcut.mode = ime::ShortcutMode::Disabled;
+      disabled.tab_candidates = false;
+      const UINT changed = RegisterWindowMessageW(ime::kInputPreferencesChanged);
+      Check(ime::SaveInputPreferences(profile, {}, disabled), "save disabled shortcut and native Tab");
+      SendMessageW(service.cand_window_.poll_hwnd(), changed, 0, 0);
+      Check(service.mode_key_count_ == 0 && !service.input_preferences_.tab_candidates && !key_manager.shortcuts,
+            "settings notification removes previous shortcuts without restarting");
+      service.context_ = &context; context.AddRef();
+      service.session_.Type("kana");
+      service.OnTestKeyDown(&context, VK_TAB, 0, &eaten);
+      Check(!eaten, "native Tab preference passes navigation to the app while composing");
+      service.ResetSessionState();
+      service.context_->Release(); service.context_ = nullptr;
+      Check(button->OnClick(TF_LBI_CLK_LEFT, {}, nullptr) == S_OK && shows(L"A"),
+            "mouse switch remains available with keyboard shortcuts disabled");
+      const ime::InputPreferences custom{{ime::ShortcutMode::Custom, VK_F9, MOD_CONTROL}, true};
+      Check(ime::SaveInputPreferences(profile, disabled, custom), "save Ctrl+F9 as the only shortcut");
+      SendMessageW(service.cand_window_.poll_hwnd(), changed, 0, 0);
+      Check(key_manager.shortcuts == 1 && service.mode_keys_[0].uVKey == VK_F9 &&
+            (service.mode_keys_[0].uModifiers & TF_MOD_CONTROL), "only the saved custom chord is registered");
+      service.OnPreservedKey(&context, key_manager.last_shortcut, &eaten);
+      Check(eaten && shows(L"あ"), "custom shortcut reopens Japanese input");
+      Check(ime::SaveInputPreferences(profile, custom, {}), "restore factory input preferences");
+      SendMessageW(service.cand_window_.poll_hwnd(), changed, 0, 0);
+      Check(key_manager.shortcuts > 1 && service.input_preferences_.tab_candidates, "restore default shortcuts and Tab");
+      if (original.vt == VT_I4) service.keyboard_open_->SetValue(client, &original);
+      VariantClear(&original);
+      button->AddRef();
+      service.Deactivate();
+      Check(!key_manager.shortcuts, "all Windows shortcuts released when switching IMEs");
+      Check(button->OnClick(TF_LBI_CLK_LEFT, {}, nullptr) == TF_E_DISCONNECTED,
+            "old shell button is harmless after profile switch");
+      button->Release();
+    } else if (SUCCEEDED(hr)) service.Deactivate();
+    manager->Deactivate();
+    manager->Release();
+    std::filesystem::remove(profile / L"settings.json");
+    std::filesystem::remove(profile);
+  }
   static void Run() {
+    TestInputMode();
     {
       TextService service;
       wchar_t exe[32768]{}; GetModuleFileNameW(nullptr, exe, 32768);

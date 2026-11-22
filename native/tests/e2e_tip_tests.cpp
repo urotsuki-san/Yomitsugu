@@ -546,6 +546,25 @@ int main(int argc, char** argv) {
                            SUCCEEDED(text_hr) && label && wcscmp(label, L"あ") == 0;
     Expect(available, "T00 input indicator exposes hiragana menu item");
     if (label) SysFreeString(label);
+    if (available) {
+      TF_LANGBARITEMINFO info{};
+      Expect(button->GetInfo(&info) == S_OK && (info.dwStyle & TF_LBI_STYLE_BTN_BUTTON),
+             "T00 input indicator supports a direct click");
+      ClearBetween();
+      SendMessageW(g_hEdit, EM_SETCTFOPENSTATUS, FALSE, 0);
+      Pump(100);
+      BSTR direct = nullptr;
+      Expect(button->GetText(&direct) == S_OK && direct && wcscmp(direct, L"A") == 0,
+             "T00 externally closed input indicator shows A");
+      SysFreeString(direct);
+      RunKeys("ka"); Pump(100);
+      Expect(GetEditText() == L"ka", "T00 closed IME leaves romaji in the edit");
+      ClearEdit();
+      Expect(button->OnClick(TF_LBI_CLK_LEFT, {}, nullptr) == S_OK, "T00 reopen from indicator");
+      Pump(100);
+      RunKeys("ka"); Pump(120); SendVk(VK_RETURN); Pump(120);
+      Expect(GetEditText() == L"か", "T00 same input field converts after one click");
+    }
     if (button) button->Release();
     if (item) item->Release();
     if (manager) manager->Release();

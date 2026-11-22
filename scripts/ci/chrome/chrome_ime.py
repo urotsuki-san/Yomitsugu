@@ -144,7 +144,7 @@ def mode_status():
     if not send(wnd,0x283,5,0,2,300,ctypes.byref(result)):return None
     return result.value
 
-def candidate_list(pid):
+def candidate_list(pid,include_hidden=False):
     # The production UI uses a standard LISTBOX. Read numeric state only.
     user=ctypes.windll.user32
     find=user.FindWindowExW
@@ -155,15 +155,22 @@ def candidate_list(pid):
     while hwnd:=find(None,hwnd,"ImeMixedCandidateWindow","変換候補"):
         owner=wt.DWORD()
         user.GetWindowThreadProcessId(hwnd,ctypes.byref(owner))
-        if owner.value!=pid or not user.IsWindowVisible(hwnd):continue
+        visible=bool(user.IsWindowVisible(hwnd))
+        if owner.value!=pid or (not visible and not include_hidden):continue
         box=find(hwnd,0,"LISTBOX",None)
         if not box:continue
         send=user.SendMessageTimeoutW
         send.argtypes=[wt.HWND,wt.UINT,wt.WPARAM,wt.LPARAM,wt.UINT,wt.UINT,ctypes.POINTER(ctypes.c_size_t)]
         count,idx=ctypes.c_size_t(),ctypes.c_size_t()
         if send(box,0x18b,0,0,2,200,ctypes.byref(count)) and send(box,0x188,0,0,2,200,ctypes.byref(idx)):
-            return {"count":count.value,"selected":ctypes.c_ssize_t(idx.value).value}
+            return {"count":count.value,"selected":ctypes.c_ssize_t(idx.value).value,"visible":visible}
     return None
+
+def observe_row(pid,index):
+    try:
+        return wait(lambda:(c:=candidate_list(pid)) and c["selected"]==index and c,"Candidate row not visible",2)
+    except RuntimeError:
+        return {"expected":index,"observed":candidate_list(pid,include_hidden=True),"visible":False}
 
 def shift_key(pid,vk,scan):
     key(pid,0x10,0x2a,False)
@@ -197,11 +204,40 @@ def taskbar_audit(result_file,click=False):
           str(HERE/"taskbar.ps1"),"-Result",str(path)]
     if click:args.append("-Click")
     try:
-        subprocess.run(args,creationflags=CREATE,check=True,timeout=15)
+        process=subprocess.run(args,creationflags=CREATE,capture_output=True,timeout=18)
+        if process.returncode:
+            path.with_suffix(".err").write_bytes(process.stderr+process.stdout)
+            raise RuntimeError("taskbar helper exit "+str(process.returncode))
         return json.loads(path.read_text(encoding="utf-8-sig")).get("outcome")
-    except (OSError,subprocess.SubprocessError,ValueError) as error:
+    except (OSError,subprocess.SubprocessError,ValueError,RuntimeError) as error:
         print("Taskbar observation:",error,flush=True)
         return None
+
+def test_taskbar(pid,snapshot,result_file):
+    result={"action":"unavailable","opened_input":None}
+    try:
+        key(pid,0x10,0x2a,False)
+        tap(pid,0x09)
+        key(pid,0x10,0x2a,True)
+        wait(lambda:snapshot()["active"]=="body","Textarea did not regain Tab focus",2)
+        user=ctypes.windll.user32
+        browser_window=user.GetForegroundWindow()
+        action=taskbar_audit(result_file,click=True)
+        result["action"]=action
+        if action!="入力モードボタンをInvoke":return result
+        if foreground_pid()!=pid:
+            user.SetForegroundWindow.argtypes=[wt.HWND]
+            user.SetForegroundWindow(browser_window)
+        wait(lambda:foreground_pid()==pid and snapshot()["active"]=="body","Chrome did not regain focus",2)
+        begin=len(snapshot()["events"])
+        tap(pid,ord("K"))
+        tap(pid,ord("A"))
+        result["opened_input"]=bool(wait(lambda:any(e["type"]=="compositionstart" and e["trusted"]
+            for e in snapshot()["events"][begin:]),"No native composition after clicking the mode button",2))
+        tap(pid,0x1b)
+    except Exception as error:
+        result["error"]=str(error)
+    return result
 
 def smoke(chrome,profile):
     page=(HERE/"fields.html").resolve().as_uri()
@@ -258,12 +294,12 @@ def guest(chrome,profile,expected_hash,selector,result_file):
                     tap(p.pid,0x09)
                     wait(lambda:(s:=snapshot())["active"]==field and s["values"][idx] not in ("",marker) and s,
                                "Second Tab did not choose another candidate")
-                    chosen=wait(lambda:(c:=candidate_list(p.pid)) and c["selected"]==1 and c,"Second Tab did not select row two")
+                    chosen=observe_row(p.pid,1)
                     key(p.pid,0x10,0x2a,False)
                     tap(p.pid,0x09)
                     key(p.pid,0x10,0x2a,True)
                     wait(lambda:snapshot()["values"][idx]==marker,"Shift+Tab did not restore the first candidate")
-                    restored=wait(lambda:(c:=candidate_list(p.pid)) and c["selected"]==0 and c,"Shift+Tab did not select row one")
+                    restored=observe_row(p.pid,0)
                     selections.append({"field":field,"next":chosen,"previous":restored})
                     stage=field+" Enter"
                     tap(p.pid,0x0D)
@@ -287,22 +323,10 @@ def guest(chrome,profile,expected_hash,selector,result_file):
                 for field in ("query","body"):
                     if not any(e["field"]==field and e["trusted"] and e["type"]=="compositionstart" for e in last["events"]):
                         raise RuntimeError("No trusted compositionstart for "+field)
-                taskbar_result={"action":"unavailable","opened_input":None}
-                key(p.pid,0x10,0x2a,False)
-                tap(p.pid,0x09)
-                key(p.pid,0x10,0x2a,True)
-                if snapshot()["active"]=="body":
-                    action=taskbar_audit(result_file,click=True)
-                    taskbar_result["action"]=action
-                    if action=="入力モードボタンをInvoke" and foreground_pid()==p.pid:
-                        begin=len(snapshot()["events"])
-                        tap(p.pid,ord("K"))
-                        tap(p.pid,ord("A"))
-                        taskbar_result["opened_input"]=any(e["type"]=="compositionstart" and e["trusted"]
-                                                          for e in snapshot()["events"][begin:])
-                        tap(p.pid,0x1b)
+                taskbar_result=test_taskbar(p.pid,snapshot,result_file)
                 return {"mode":"hosted runner native","browser":str(chrome),"tip":str(tip),"tip_sha256":expected_hash,
                         "marker":marker,"verified_foreground_pid":p.pid,"shift_mode_transitions":changes,
+                        "keyboard_passed":True,"candidate_list_passed":all(s["next"]["visible"] and s["previous"]["visible"] for s in selections),
                         "tab_candidates":selections,"taskbar":taskbar_result,"trace":last}
             except Exception as error:
                 if result_file:
@@ -354,5 +378,6 @@ def main():
     output=json.dumps(result,indent=2,ensure_ascii=False)
     if args.result:args.result.write_text(output,encoding="utf8")
     else:print(output)
+    if args.native and not result["candidate_list_passed"]:raise SystemExit("The expected candidate row was not visible")
 
 if __name__=="__main__":main()

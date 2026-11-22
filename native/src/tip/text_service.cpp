@@ -176,15 +176,31 @@ HRESULT TextService::EditSetText(TfEditCookie ec, ITfContext* pic, const std::st
       TF_SELECTION s{}; s.range = selection; s.style.ase = TF_AE_NONE;
       pic->SetSelection(ec, 1, &s);
       ITfContextView* view = nullptr;
-      caret_valid_ = false;
       if (SUCCEEDED(pic->GetActiveView(&view)) && view) {
         RECT rect{}; BOOL clipped = FALSE; HWND owner = nullptr;
-        if (SUCCEEDED(view->GetTextExt(ec, selection, &rect, &clipped))) {
-          caret_point_ = {rect.left, rect.bottom + 2}; caret_valid_ = true;
+        view->GetWnd(&owner);
+        const auto anchor = owner ? owner : GetFocus();
+        const auto layout = view->GetTextExt(ec, selection, &rect, &clipped);
+        if (layout == S_OK && rect.bottom > rect.top) {
+          caret_point_ = {rect.left, rect.bottom + 2};
+          caret_valid_ = true;
+        } else {
+          // Chromium may have an edit lock before it has laid out the new text.
+          caret_valid_ = layout == TF_E_NOLAYOUT && anchor && anchor == caret_owner_ && caret_valid_;
+          if (!caret_valid_ && layout == TF_E_NOLAYOUT && anchor) {
+            GUITHREADINFO gui{sizeof(gui)};
+            if (GetGUIThreadInfo(GetCurrentThreadId(), &gui) && gui.hwndCaret &&
+                GetAncestor(gui.hwndCaret, GA_ROOT) == GetAncestor(anchor, GA_ROOT) &&
+                gui.rcCaret.bottom > gui.rcCaret.top) {
+              POINT pt{gui.rcCaret.left, gui.rcCaret.bottom + 2};
+              if (ClientToScreen(gui.hwndCaret, &pt)) { caret_point_ = pt; caret_valid_ = true; }
+            }
+          }
         }
-        if (SUCCEEDED(view->GetWnd(&owner)) && owner) cand_window_.SetOwner(owner);
+        caret_owner_ = anchor;
+        if (owner) cand_window_.SetOwner(owner);
         view->Release();
-      }
+      } else caret_valid_ = false;
       selection->Release();
     }
   }
@@ -376,6 +392,8 @@ HRESULT TextService::EndComposition(ITfContext* pic, bool commit) {
   return RequestState(pic, next, text, commit, !commit);
 }
 void TextService::ReleaseCompositionRef() {
+  caret_valid_ = false;
+  caret_owner_ = nullptr;
   if (composition_) { composition_->Release(); composition_ = nullptr; }
   has_composition_ = false;
 }
@@ -989,6 +1007,7 @@ STDMETHODIMP TextService::OnSetFocus(BOOL fForeground) {
   foreground_ = fForeground != FALSE;
   if (foreground_) retry_engine_at_ = 0;
   if (!foreground_) {
+    caret_valid_ = false;
     ForgetDeferredFinal();
     cand_window_.Hide(); engine_channel_.FinishLearning(250); engine_channel_.Stop();
     submitted_revision_ = -1; last_submit_at_ = 0; cand_window_.SetPollInterval(0);
@@ -1162,6 +1181,7 @@ STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr*)
     document_focused_ = false;
     cand_window_.Hide();
     if (!pdimFocus) {
+      caret_valid_ = false;
       ForgetDeferredFinal();
       return S_OK;
     }

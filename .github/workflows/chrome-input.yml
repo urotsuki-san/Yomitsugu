@@ -15,7 +15,9 @@ jobs:
         run: |
           cmake -S native -B build -A x64
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
-          cmake --build build --config Release --target ime_mixed_tip ime_settings chrome_select_profile --parallel 4
+          cmake --build build --config Release --target ime_mixed_tip ime_settings chrome_select_profile tip_stability_test e2e_tip_tests paint_bench shortcut_dialog_test --parallel 4
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          ctest --test-dir build -C Release -R '^(tip_stability_test|shortcut_dialog_test)$' --output-on-failure
           if ($LASTEXITCODE) { exit $LASTEXITCODE }
       - name: 公開版のモデルで Chrome のキー入力を検証
         shell: pwsh

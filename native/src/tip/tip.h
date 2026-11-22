@@ -173,6 +173,7 @@ class TextService : public ITfTextInputProcessorEx,
   bool ending_ = false;
   bool restricted_ = false;
   POINT caret_point_{0, 0};
+  HWND caret_owner_ = nullptr;
   bool caret_valid_ = false;
 #ifdef YOMITSUGU_LIVE_TEST
   std::wstring test_worker_, test_profile_;
