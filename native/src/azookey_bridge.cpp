@@ -326,6 +326,7 @@ std::vector<std::string> AzookeyAlternativeReading(const std::string& reading, c
   if (!comparison.remaining) return {};
   --comparison.remaining;
   comparison.first_gain = -std::numeric_limits<float>::infinity();
+  comparison.lead_over_second = std::numeric_limits<float>::infinity();
   const bool saved = comparison.sample && comparison.sample->original == reading && comparison.sample->alternate == alternative;
   if (saved) comparison.original_score = comparison.sample->original_score;
   if (std::isnan(comparison.original_score)) {
@@ -380,6 +381,7 @@ std::vector<std::string> AzookeyAlternativeReading(const std::string& reading, c
     if (!std::isfinite(c.score) || c.score<=first_score+comparison.minimum_gain) break;
     if ((c.text != alternative || comparison.include_kana) && std::find(result.begin(), result.end(), c.text) == result.end()) {
       if (result.empty()) comparison.first_gain = c.score - first_score;
+      else comparison.lead_over_second = comparison.first_gain - (c.score - first_score);
       result.push_back(c.text);
     }
     if (result.size()==2) break;

@@ -44,6 +44,7 @@ struct AzookeyReadingComparison {
   int remaining = 2;
   float original_score = std::numeric_limits<float>::quiet_NaN();
   float minimum_gain = 0;
+  float lead_over_second = std::numeric_limits<float>::infinity();
   float first_gain = -std::numeric_limits<float>::infinity();
   std::string_view incumbent;
   bool include_kana = false;

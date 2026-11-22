@@ -55,7 +55,8 @@ def main(host):
             assert raw in final
         typed, interim, final = conversion(engine, "geninn", "昔の下人は、")
         assert typed == final[0] == "下人" and "原因" not in interim and "原因" in final
-        typed, _, _ = conversion(engine, "kanin")
+        typed, previews, final = conversion(engine, "kanin")
+        assert final[0] == "かにん" and "完飲" in final[1:] and "完飲" not in previews
         assert typed != "完飲", "a delayed typing response could contaminate the rest of kaninchen"
         for incomplete, completed in [("tenin", "店員"), ("senin", "船員")]:
             _, interim, final = conversion(engine, incomplete)
