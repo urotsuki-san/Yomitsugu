@@ -172,6 +172,22 @@ def observe_row(pid,index):
     except RuntimeError:
         return {"expected":index,"observed":candidate_list(pid,include_hidden=True),"visible":False}
 
+def enter_commit(events,field,marker):
+    # The only input sent in this interval is physical VK_RETURN via SendInput.
+    # Blink queues compositionend; its isTrusted flag can be false even as the
+    # surrounding native keydown, input and keyup have isTrusted=true.
+    matching=[e for e in events if e["field"]==field]
+    criteria=[lambda e:e["type"]=="keydown" and e["trusted"],
+              lambda e:e["type"]=="input" and e["trusted"] and e["value"]==marker,
+              lambda e:e["type"]=="compositionend" and e["data"]==marker and e["value"]==marker,
+              lambda e:e["type"]=="keyup" and e["trusted"]]
+    found=[]
+    for event in matching:
+        if criteria[len(found)](event):
+            found.append(event)
+            if len(found)==len(criteria):return found
+    return None
+
 def shift_key(pid,vk,scan):
     key(pid,0x10,0x2a,False)
     try:
@@ -266,6 +282,7 @@ def guest(chrome,profile,expected_hash,selector,result_file):
                                cwd=HERE,creationflags=subprocess.BELOW_NORMAL_PRIORITY_CLASS)
             changes=[]
             selections=[]
+            commits=[]
             stage="Chrome startup"
             try:
                 wait(lambda:snapshot().get("active")=="query" and foreground_pid()==p.pid,
@@ -302,9 +319,11 @@ def guest(chrome,profile,expected_hash,selector,result_file):
                     restored=observe_row(p.pid,0)
                     selections.append({"field":field,"next":chosen,"previous":restored})
                     stage=field+" Enter"
+                    start_enter=len(snapshot()["events"])
                     tap(p.pid,0x0D)
-                    wait(lambda:any(e["field"]==field and e["type"]=="compositionend" and e["trusted"]
-                                    for e in snapshot()["events"][start:]),"No trusted compositionend for "+field)
+                    sequence=wait(lambda:enter_commit(snapshot()["events"][start_enter:],field,marker),
+                                  "No complete native Enter commit sequence for "+field)
+                    commits.append({"field":field,"events":sequence})
                     stage=field+" Shift+英数 ON to OFF"
                     changes.append({"field":field,"direction":"on-off","status":shift_key(p.pid,0xf0,0x3a)})
                     direct_start=len(snapshot()["events"])
@@ -326,14 +345,15 @@ def guest(chrome,profile,expected_hash,selector,result_file):
                 taskbar_result=test_taskbar(p.pid,snapshot,result_file)
                 return {"mode":"hosted runner native","browser":str(chrome),"tip":str(tip),"tip_sha256":expected_hash,
                         "marker":marker,"verified_foreground_pid":p.pid,"shift_mode_transitions":changes,
-                        "keyboard_passed":True,"candidate_list_passed":all(s["next"]["visible"] and s["previous"]["visible"] for s in selections),
+                        "fixture_sha256":sha(HERE/"fields.html"),"enter_commits":commits,"keyboard_passed":True,
+                        "candidate_list_passed":all(s["next"]["visible"] and s["previous"]["visible"] for s in selections),
                         "tab_candidates":selections,"taskbar":taskbar_result,"trace":last}
             except Exception as error:
                 if result_file:
                     taskbar_audit(result_file)
                     result_file.write_text(json.dumps({"failed":stage,"error":str(error),"foreground":foreground_pid(),
                         "test_pid":p.pid,"mode_status":mode_status(),"candidates":candidate_list(p.pid),
-                        "tab_candidates":selections,"shift_mode_transitions":changes,"trace":snapshot()},
+                        "tab_candidates":selections,"enter_commits":commits,"shift_mode_transitions":changes,"trace":snapshot()},
                         ensure_ascii=False,indent=2),encoding="utf8")
                 raise
             finally:
