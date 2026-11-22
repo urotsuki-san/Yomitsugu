@@ -951,6 +951,10 @@ std::vector<ProtectRegion> LatinNameSpans(const std::string& raw,
       for (size_t from = earliest; from+3 <= cut; ++from) {
         const auto name = std::string_view(folded).substr(from,cut-from);
         if (!IsLatinName(name)) continue;
+        // A standalone name in a space-delimited English sentence already has
+        // word boundaries. Keep the surrounding words available to language scoring.
+        if (from == start && cut == end &&
+            ((start && raw[start - 1] == ' ') || (end < raw.size() && raw[end] == ' '))) continue;
         if (!gap.empty()) {
           if (gap.find_first_not_of("abcdefghijklmnopqrstuvwxyz") != std::string_view::npos) break;
           bool complete = false;
