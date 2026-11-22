@@ -316,22 +316,48 @@ std::string AzookeyDictionaryParts(const std::string& reading, const std::string
   if (runtime_enabled) set_enabled(true);
   return result;
 }
-std::vector<std::string> AzookeyAlternativeReading(const std::string& reading,const std::string& alternative,
-                                                  const std::string& left,const std::string& right) {
-  auto first_score=part_capture && part_capture->Matches(reading,left,right) ? part_capture->first_score
-      : -std::numeric_limits<float>::infinity();
-  const auto n=ScalarOffsets(reading).size()-1;
-  if (!std::isfinite(first_score)) {
-    for (const auto& c:ParseAzookeyCandidates(AzookeyDictionaryParts(reading,left,right))) {
-      if (c.corresponding_count==n) { first_score=c.score; break; }
+std::vector<std::string> AzookeyAlternativeReading(const std::string& reading, const std::string& alternative,
+                                                  const std::string& left, const std::string& right,
+                                                  AzookeyReadingComparison* state) {
+  AzookeyReadingComparison temporary;
+  auto& comparison = state ? *state : temporary;
+  if (!comparison.remaining) return {};
+  --comparison.remaining;
+  comparison.first_gain = -std::numeric_limits<float>::infinity();
+  if (std::isnan(comparison.original_score)) {
+    comparison.original_score = part_capture && part_capture->Matches(reading,left,right) ? part_capture->first_score
+        : -std::numeric_limits<float>::infinity();
+    const auto n = ScalarOffsets(reading).size()-1;
+    if (!std::isfinite(comparison.original_score)) {
+      for (const auto& c : ParseAzookeyCandidates(AzookeyDictionaryParts(reading,left,right))) {
+        if (c.corresponding_count == n) { comparison.original_score = c.score; break; }
+      }
     }
   }
-  if (!std::isfinite(first_score) || ScalarOffsets(alternative).size()-1!=n) return {};
+  auto first_score = comparison.original_score;
+  const auto alternative_count = ScalarOffsets(alternative).size()-1;
+  if (!std::isfinite(first_score)) return {};
+  const auto alternatives = ParseAzookeyCandidates(AzookeyDictionaryParts(alternative,left,right));
+  if (!comparison.incumbent.empty()) {
+    // A pre-existing typo repair may have this reading already. Compare the
+    // suggested spelling to its incumbent on the same dictionary score scale.
+    // For an unreturned incumbent, use the last full candidate as an upper bound.
+    float incumbent_score = -std::numeric_limits<float>::infinity();
+    for (const auto& c : alternatives) {
+      if (c.corresponding_count != alternative_count || !std::isfinite(c.score)) continue;
+      incumbent_score = c.score;
+      if (c.text == comparison.incumbent) break;
+    }
+    first_score = std::max(first_score, incumbent_score);
+  }
   std::vector<std::string> result;
-  for (const auto& c:ParseAzookeyCandidates(AzookeyDictionaryParts(alternative,left,right))) {
-    if (c.corresponding_count!=n) continue;
-    if (!std::isfinite(c.score) || c.score<=first_score) break;
-    if (c.text!=alternative && std::find(result.begin(),result.end(),c.text)==result.end()) result.push_back(c.text);
+  for (const auto& c : alternatives) {
+    if (c.corresponding_count!=alternative_count) continue;
+    if (!std::isfinite(c.score) || c.score<=first_score+comparison.minimum_gain) break;
+    if ((c.text != alternative || comparison.include_kana) && std::find(result.begin(), result.end(), c.text) == result.end()) {
+      if (result.empty()) comparison.first_gain = c.score - first_score;
+      result.push_back(c.text);
+    }
     if (result.size()==2) break;
   }
   return result;

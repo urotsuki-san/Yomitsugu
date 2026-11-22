@@ -238,18 +238,25 @@ def test_taskbar(pid,snapshot,result_file):
         wait(lambda:snapshot()["active"]=="body","Textarea did not regain Tab focus",2)
         user=ctypes.windll.user32
         browser_window=user.GetForegroundWindow()
+        result["before"]=mode_status()
         action=taskbar_audit(result_file,click=True)
         result["action"]=action
-        if action!="入力モードボタンをInvoke":return result
+        if action!="入力モードボタンを左クリック":return result
+        time.sleep(.3)
+        result["foreground_after_click"]=foreground_pid()
         if foreground_pid()!=pid:
             user.SetForegroundWindow.argtypes=[wt.HWND]
             user.SetForegroundWindow(browser_window)
         wait(lambda:foreground_pid()==pid and snapshot()["active"]=="body","Chrome did not regain focus",2)
+        result["after"]=mode_status()
         begin=len(snapshot()["events"])
         tap(pid,ord("K"))
         tap(pid,ord("A"))
-        result["opened_input"]=bool(wait(lambda:any(e["type"]=="compositionstart" and e["trusted"]
-            for e in snapshot()["events"][begin:]),"No native composition after clicking the mode button",2))
+        try:
+            result["opened_input"]=bool(wait(lambda:any(e["type"]=="compositionstart" and e["trusted"]
+                for e in snapshot()["events"][begin:]),"No native composition after clicking the mode button",2))
+        finally:
+            result["events"]=snapshot()["events"][begin:]
         tap(pid,0x1b)
     except Exception as error:
         result["error"]=str(error)
@@ -337,17 +344,35 @@ def guest(chrome,profile,expected_hash,selector,result_file):
                     next_field="body" if idx==0 else "end"
                     wait(lambda:snapshot().get("active")==next_field,"Post-commit Tab did not move focus")
                 last=snapshot()
-                if last["values"]!=[marker,marker]:
+                if last["values"][:2]!=[marker,marker]:
                     raise RuntimeError("Both fields must contain the test dictionary result")
                 for field in ("query","body"):
                     if not any(e["field"]==field and e["trusted"] and e["type"]=="compositionstart" for e in last["events"]):
                         raise RuntimeError("No trusted compositionstart for "+field)
+                stage="geninn in fresh Chrome field"
+                tap(p.pid,0x09)
+                wait(lambda:snapshot().get("active")=="spelling","Spelling test input did not gain focus")
+                tap(p.pid,0x16)
+                type_start=len(snapshot()["events"])
+                for k in "geninn":tap(p.pid,ord(k.upper()))
+                wait(lambda:snapshot()["values"][2]=="原因","Raw geninn did not convert to 原因")
+                if not any(e["type"]=="compositionstart" and e["trusted"] and e["field"]=="spelling" for e in snapshot()["events"][type_start:]):
+                    raise RuntimeError("No native composition for geninn")
+                enter_start=len(snapshot()["events"])
+                tap(p.pid,0x0d)
+                word_commit=wait(lambda:enter_commit(snapshot()["events"][enter_start:],"spelling","原因"),"geninn did not commit")
+                tap(p.pid,0x1a)
+                key(p.pid,0x10,0x2a,False)
+                tap(p.pid,0x09)
+                key(p.pid,0x10,0x2a,True)
+                wait(lambda:snapshot()["active"]=="end" and snapshot()["values"][2]=="原因","Committed 原因 did not survive leaving its field")
+                last=snapshot()
                 taskbar_result=test_taskbar(p.pid,snapshot,result_file)
                 return {"mode":"hosted runner native","browser":str(chrome),"tip":str(tip),"tip_sha256":expected_hash,
                         "marker":marker,"verified_foreground_pid":p.pid,"shift_mode_transitions":changes,
                         "fixture_sha256":sha(HERE/"fields.html"),"enter_commits":commits,"keyboard_passed":True,
                         "candidate_list_passed":all(s["next"]["visible"] and s["previous"]["visible"] for s in selections),
-                        "tab_candidates":selections,"taskbar":taskbar_result,"trace":last}
+                        "tab_candidates":selections,"geninn_commit":word_commit,"taskbar":taskbar_result,"trace":last}
             except Exception as error:
                 if result_file:
                     taskbar_audit(result_file)

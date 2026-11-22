@@ -235,7 +235,7 @@ int wmain(int argc, wchar_t** argv) {
       std::vector<ime::Candidate> result;
       auto apply_preferences = [&](std::vector<ime::Candidate>& rows, bool protect_numbers = false, bool final = false) {
         ime::ApplyStandalonePreference(request,rows);
-        public_dictionary.Apply(request, &rows, true);
+        public_dictionary.Apply(request, &rows, true, final);
         if (final && words.empty() && !has_personal_part &&
             (!dictionary.size() || (!kana.empty() && !hybrid.LowMemory()))) PreferDocumentSpelling(request,rows);
         learning.Apply(request, &rows);

@@ -5,10 +5,11 @@
 <label>検索 <input type="search" id="query" autocomplete="off" autofocus></label>
 <label>文章 <textarea id="body" autocomplete="off"></textarea></label>
 <button id="end">終了</button>
+<label>読みの変換 <input id="spelling" autocomplete="off"></label>
 <output id="status"></output>
 <script>
 "use strict";
-const fields = [document.querySelector("#query"), document.querySelector("#body")];
+const fields = [document.querySelector("#query"), document.querySelector("#body"), document.querySelector("#spelling")];
 const log = [];
 const token = new URLSearchParams(location.search).get("token");
 function publish(event) {
