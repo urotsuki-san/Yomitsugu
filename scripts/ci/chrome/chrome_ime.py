@@ -221,59 +221,69 @@ def chrome_executable(specified):
         if base and (p:=Path(base)/"Google/Chrome/Application/chrome.exe").is_file():return p
     raise FileNotFoundError("Chrome executable")
 
-def taskbar_audit(result_file,click=False):
-    path=result_file.with_name("taskbar-click.json" if click else "taskbar.json")
-    args=["powershell.exe","-NoProfile","-NonInteractive","-ExecutionPolicy","Bypass","-File",
-          str(HERE/"taskbar.ps1"),"-Result",str(path)]
-    if click:args.append("-Click")
-    try:
-        process=subprocess.run(args,creationflags=CREATE,capture_output=True,timeout=18)
-        if process.returncode:
-            path.with_suffix(".err").write_bytes(process.stderr+process.stdout)
-            raise RuntimeError("taskbar helper exit "+str(process.returncode))
-        return json.loads(path.read_text(encoding="utf-8-sig")).get("outcome")
-    except (OSError,subprocess.SubprocessError,ValueError,RuntimeError) as error:
-        print("Taskbar observation:",error,flush=True)
-        return None
+def taskbar_audit(result_file, step="taskbar", click=False):
+    path = result_file.with_name(step + ".json")
+    args = ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
+            "-File", str(HERE / "taskbar.ps1"), "-Result", str(path)]
+    if click:
+        args.append("-Click")
+    process = subprocess.run(args, creationflags=CREATE, capture_output=True, timeout=18)
+    if process.returncode:
+        path.with_suffix(".err").write_bytes(process.stderr + process.stdout)
+        raise RuntimeError("Taskbar helper failed at " + step)
+    return json.loads(path.read_text(encoding="utf-8-sig"))
 
-def test_taskbar(pid,snapshot,result_file):
-    result={"action":"unavailable","opened_input":None}
+def test_taskbar(pid, snapshot, result_file):
+    result = {"passed": False, "clicks": []}
     try:
-        key(pid,0x10,0x2a,False)
-        tap(pid,0x09)
-        key(pid,0x10,0x2a,True)
-        wait(lambda:snapshot()["active"]=="body","Textarea did not regain Tab focus",2)
-        user=ctypes.windll.user32
-        browser_window=user.GetForegroundWindow()
-        result["before"]=mode_status()
-        action=taskbar_audit(result_file,click=True)
-        result["action"]=action
-        if action!="入力モードボタンを左クリック":
-            if action in (None,"ボタンのクリック位置を特定できない","入力モードのボタンを検出"):result["passed"]=False
-            return result
-        result["passed"]=False
-        time.sleep(.3)
-        result["foreground_after_click"]=foreground_pid()
-        if foreground_pid()!=pid:
-            user.SetForegroundWindow.argtypes=[wt.HWND]
-            user.SetForegroundWindow(browser_window)
-        wait(lambda:foreground_pid()==pid and snapshot()["active"]=="body","Chrome did not regain focus",2)
-        result["after"]=mode_status()
-        begin=len(snapshot()["events"])
-        tap(pid,ord("K"))
-        tap(pid,ord("A"))
-        try:
-            result["opened_input"]=bool(wait(lambda:any(e["type"]=="compositionstart" and e["trusted"]
-                for e in snapshot()["events"][begin:]),"No native composition after clicking the mode button",2))
-            result["kana_observed"]=bool(wait(lambda:any(e["type"]=="input" and e["trusted"] and
-                e["value"].endswith("か") for e in snapshot()["events"][begin:]),"ka did not become か after the click",2))
-            result["passed"]=result["before"]==0 and result["after"]==1 and result["opened_input"] and result["kana_observed"]
-        finally:
-            result["events"]=snapshot()["events"][begin:]
-        tap(pid,0x1b)
+        key(pid, 0x10, 0x2a, False)
+        tap(pid, 0x09)
+        key(pid, 0x10, 0x2a, True)
+        wait(lambda: snapshot()["active"] == "body", "Textarea did not regain Tab focus", 2)
+        for name, before, after, suffix in (("open", "直接入力", "日本語入力", "か"),
+                                             ("close", "日本語入力", "直接入力", "ka")):
+            opening = name == "open"
+            record = {"direction": name, "before": mode_status()}
+            result["clicks"].append(record)
+            if record["before"] != int(not opening):
+                raise RuntimeError("Unexpected starting mode for " + name)
+            clicked = taskbar_audit(result_file, "taskbar-" + name, click=True)
+            record.update(action=clicked["outcome"], label_before=clicked["mode_name"])
+            if clicked["outcome"] != "入力モードボタンを左クリック" or before not in (clicked["mode_name"] or ""):
+                raise RuntimeError("Expected mode button was not clicked: " + name)
+            wait(lambda: foreground_pid() == pid and snapshot()["active"] == "body",
+                 "Chrome lost input focus after clicking " + name, 2)
+            wait(lambda: mode_status() == int(opening), "Chrome mode did not switch: " + name, 2)
+            record["after"] = mode_status()
+            observed = taskbar_audit(result_file, "taskbar-" + name + "-after")
+            record["label_after"] = observed["mode_name"]
+            if after not in (observed["mode_name"] or ""):
+                raise RuntimeError("Taskbar did not show the new input mode: " + name)
+
+            prior = snapshot()
+            begin = len(prior["events"])
+            expected = prior["values"][1] + suffix
+            tap(pid, ord("K"))
+            tap(pid, ord("A"))
+            state = wait(lambda: (s := snapshot())["values"][1] == expected and s,
+                         "Typing ka did not yield " + suffix, 3)
+            events = state["events"][begin:]
+            record["typed"] = suffix
+            record["events"] = events
+            if not any(e["field"] == "body" and e["type"] == "input" and e["trusted"]
+                       and e["value"] == expected for e in events):
+                raise RuntimeError("Missing native input event: " + name)
+            compositions = [e["type"] for e in events if e["field"] == "body" and e["trusted"]
+                            and e["type"].startswith("composition")]
+            if (opening and "compositionstart" not in compositions) or (not opening and compositions):
+                raise RuntimeError("Unexpected composition state: " + name)
+            if opening:
+                tap(pid, 0x0d)
+                wait(lambda: any(e["field"] == "body" and e["type"] == "compositionend" and e["trusted"]
+                                 for e in snapshot()["events"][begin:]), "Kana was not committed", 3)
+        result["passed"] = True
     except Exception as error:
-        result["passed"]=False
-        result["error"]=str(error)
+        result["error"] = str(error)
     return result
 
 def smoke(chrome,profile):
@@ -438,6 +448,6 @@ def main():
     if args.result:args.result.write_text(output,encoding="utf8")
     else:print(output)
     if args.native and not result["candidate_list_passed"]:raise SystemExit("The expected candidate row was not visible")
-    if args.native and result["taskbar"].get("passed") is False:raise SystemExit("The identified mode button failed to switch Chrome input")
+    if args.native and not result["taskbar"]["passed"]:raise SystemExit("The identified mode button failed to switch Chrome input")
 
 if __name__=="__main__":main()

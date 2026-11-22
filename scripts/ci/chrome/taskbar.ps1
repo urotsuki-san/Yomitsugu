@@ -51,8 +51,10 @@ if ($bar) {
 $diagnostics=@()
 $outcome='識別できる入力モードボタンがない'
 $hit=$null
+$modeName=$null
 if ($modeEntries.Count -eq 1) {
     $target=$modeEntries[0]
+    $modeName=$target.Current.Name
     $outcome='入力モードのボタンを検出'
     if ($Click) {
         $barHwnd=[IntPtr]$bar.Current.NativeWindowHandle
@@ -110,5 +112,5 @@ if ($modeEntries.Count -eq 1) {
     }
 }
 if (!$bar) {$outcome='Shell_TrayWndを取得できない'}
-@{taskbar=[bool]$bar;items=$rows;mode_matches=$modeEntries.Count;outcome=$outcome;hit=$hit;attempts=$diagnostics} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $Result -Encoding UTF8
+@{taskbar=[bool]$bar;items=$rows;mode_matches=$modeEntries.Count;mode_name=$modeName;outcome=$outcome;hit=$hit;attempts=$diagnostics} | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath $Result -Encoding UTF8
 Write-Host $outcome
