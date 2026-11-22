@@ -64,6 +64,8 @@ class Session {
   void set_deferred_decoding(bool enabled) { deferred_decoding_ = enabled; }
   DecodeInput decode_input() const;
   bool ApplyCandidates(const DecodeInput& request, std::vector<Candidate> candidates);
+  bool SelectPendingTab(int64_t steps);
+  int64_t pending_tab_steps() const { return pending_tab_steps_; }
   bool ApplyPendingPreview(const DecodeInput& request, std::vector<Candidate> candidates, uint64_t sequence=0);
   uint64_t refinement_preview_sequence() const { return refinement_preview_sequence_; }
   bool ApplyTypingPrefix(const DecodeInput& request, const Candidate& first);
@@ -83,6 +85,7 @@ class Session {
   void DeleteForward();
   SpaceAction QuerySpace() const;
   void PressSpace();
+  void PressTab(bool reverse);
   void PressShiftSpace();
   void PressEnter();
   void PressEscape();
@@ -126,6 +129,7 @@ class Session {
   void NextCandidate();
   void PrevCandidate();
   void RebuildSegments();
+  void StartCandidateSelection();
   static void PushCapped(std::vector<std::string>& log, std::string value);
 
   int revision_ = 0;
@@ -144,6 +148,7 @@ class Session {
   bool RememberPreview(const std::string& raw, const Candidate& candidate);
   bool deferred_decoding_ = false;
   bool awaiting_candidates_ = false;
+  int64_t pending_tab_steps_ = 0;
   uint64_t refinement_preview_sequence_ = 0;
   std::string left_context_;
   std::string right_context_;

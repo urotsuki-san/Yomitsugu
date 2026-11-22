@@ -10,6 +10,7 @@
 #include "dictionary_editor.h"
 #include "user_dictionary.h"
 #include "learning_store.h"
+#include "shortcut_dialog.h"
 #include "app_update.h"
 #include "dictionary_status.h"
 #include <memory>
@@ -17,7 +18,7 @@
 namespace {
 constexpr int kOpen = 101, kImport = 102, kUpdate = 103, kAbout = 104;
 constexpr int kLearning = 105, kClearLearning = 106;
-constexpr int kAppUpdate = 107, kModel = 108;
+constexpr int kAppUpdate = 107, kModel = 108, kInputKeys = 109;
 constexpr UINT kUpdateDone = WM_APP + 1;
 constexpr UINT kAppUpdateDone = WM_APP + 2;
 struct UpdateResult {
@@ -202,7 +203,7 @@ void HandleAppUpdate(UpdateResult& result) {
 }
 void About() {
   MessageBoxW(window,
-    L"Yomitsugu 0.2.10-hybrid.12\r\nローマ字を打つそばから、日本語に変えるIMEです。\r\n\r\n変換はPC内で処理します。辞書はMozcとEDRDG、アプリの更新はGitHubから取得します。\r\n\r\n使い方はスタートメニューの「Yomitsugu → 使い方」、出典はインストール先の THIRD_PARTY.md を参照してください。",
+    L"Yomitsugu 0.2.10 Preview 3\r\nローマ字を打つそばから、日本語に変えるIMEです。\r\n\r\n変換はPC内で処理します。辞書はMozcとEDRDG、アプリの更新はGitHubから取得します。\r\n\r\n使い方はスタートメニューの「Yomitsugu → 使い方」、出典はインストール先の THIRD_PARTY.md を参照してください。",
     L"Yomitsugu", MB_OK);
 }
 void DrawAction(const DRAWITEMSTRUCT* item) {
@@ -250,21 +251,21 @@ void DrawDashboard(HWND hwnd, HDC target) {
   auto navy = CreateSolidBrush(RGB(22,43,76)); FillRect(dc,&header,navy); DeleteObject(navy);
   Text(dc,title_font,RGB(255,255,255),L"Yomitsugu", {24,8,222,51},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   Text(dc,body_font,RGB(216,230,244),L"設定と辞書", {224,12,400,52},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Panel(dc,{20,76,636,181},RGB(255,255,255),RGB(213,223,233),12);
+  Panel(dc,{20,76,636,195},RGB(255,255,255),RGB(213,223,233),12);
   Text(dc,small_font,Muted(),L"変更は次の入力から適用されます。",
-       {36,157,623,178},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Text(dc,section_font,Ink(),L"辞書", {23,188,190,214},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Panel(dc,{20,218,636,307},RGB(255,255,255),RGB(213,223,233),12);
-  Text(dc,body_font,Ink(),L"公開辞書",{36,224,110,247},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Text(dc,body_font,Ink(),public_status.c_str(),{122,224,390,247},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Text(dc,small_font,Muted(),dictionary_updated.c_str(),{36,248,340,272},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Text(dc,small_font,Muted(),dictionary_checked.c_str(),{36,271,340,295},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Text(dc,body_font,Ink(),L"ユーザー辞書",{398,224,620,247},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Text(dc,small_font,Muted(),user_status.c_str(),{398,249,620,272},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+       {36,155,371,187},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,section_font,Ink(),L"辞書", {23,202,190,228},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Panel(dc,{20,232,636,321},RGB(255,255,255),RGB(213,223,233),12);
+  Text(dc,body_font,Ink(),L"公開辞書",{36,238,110,261},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,body_font,Ink(),public_status.c_str(),{122,238,390,261},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,small_font,Muted(),dictionary_updated.c_str(),{36,262,340,286},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,small_font,Muted(),dictionary_checked.c_str(),{36,285,340,309},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,body_font,Ink(),L"ユーザー辞書",{398,238,620,261},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,small_font,Muted(),user_status.c_str(),{398,263,620,286},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   Text(dc,small_font,Muted(),(updating ? status_note.c_str() : L"入力と辞書はこのPCで処理します。"),
-       {398,271,625,295},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Panel(dc,{20,445,636,528},RGB(255,255,255),RGB(213,223,233),12);
-  Text(dc,small_font,Muted(),learning_status.c_str(),{36,492,643,516},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+       {398,285,625,309},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Panel(dc,{20,459,636,542},RGB(255,255,255),RGB(213,223,233),12);
+  Text(dc,small_font,Muted(),learning_status.c_str(),{36,506,643,530},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   BitBlt(target,0,0,client.right,client.bottom,dc,0,0,SRCCOPY);
   SelectObject(dc,previous); DeleteObject(image); DeleteDC(dc);
 }
@@ -289,9 +290,13 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) 
       SendMessageW(model_combo,WM_SETFONT,reinterpret_cast<WPARAM>(body_font),TRUE);
       SendMessageW(model_detail,WM_SETFONT,reinterpret_cast<WPARAM>(body_font),TRUE);
       for (const auto& model : models) SendMessageW(model_combo,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(model.title));
+      auto input_keys=CreateWindowW(L"BUTTON",L"入力切替キーとTabの設定(&K)…",
+          WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,383,155,232,32,hwnd,
+          reinterpret_cast<HMENU>(static_cast<INT_PTR>(kInputKeys)),nullptr,nullptr);
+      SendMessageW(input_keys,WM_SETFONT,reinterpret_cast<WPARAM>(body_font),TRUE);
       const struct { int id; const wchar_t* text; int x,y; } buttons[] = {
-        {kOpen,L"ユーザー辞書を編集",20,316},{kImport,L"TSV辞書を取り込む",333,316},
-        {kUpdate,L"公開辞書を確認・更新",20,380},{kAppUpdate,L"アプリを更新",333,380}};
+        {kOpen,L"ユーザー辞書を編集",20,330},{kImport,L"TSV辞書を取り込む",333,330},
+        {kUpdate,L"公開辞書を確認・更新",20,394},{kAppUpdate,L"アプリを更新",333,394}};
       for (const auto& button : buttons) {
         auto control=CreateWindowW(L"BUTTON",button.text,WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW,
             button.x,button.y,303,56,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(button.id)),nullptr,nullptr);
@@ -299,9 +304,9 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) 
         if(button.id==kAppUpdate) app_update_button=control;
       }
       learning_checkbox=CreateWindowW(L"BUTTON",L"候補の選択を学習する",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,
-          36,455,300,32,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLearning)),nullptr,nullptr);
+          36,469,300,32,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLearning)),nullptr,nullptr);
       auto clear_learning=CreateWindowW(L"BUTTON",L"学習履歴を削除",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
-          474,455,141,32,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearLearning)),nullptr,nullptr);
+          474,469,141,32,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearLearning)),nullptr,nullptr);
       SendMessageW(learning_checkbox,WM_SETFONT,reinterpret_cast<WPARAM>(body_font),TRUE);
       SendMessageW(clear_learning,WM_SETFONT,reinterpret_cast<WPARAM>(body_font),TRUE);
       ime::LearningStore learning(user_dir);
@@ -331,6 +336,7 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) 
       DrawAction(reinterpret_cast<const DRAWITEMSTRUCT*>(lparam)); return TRUE;
     case WM_COMMAND:
       switch (LOWORD(wparam)) {
+        case kInputKeys: ShowInputPreferences(hwnd, user_dir); break;
         case kOpen: OpenDictionary(); break;
         case kImport: ImportDictionary(); break;
         case kUpdate: UpdateDictionary(); break;
@@ -398,7 +404,7 @@ int RunSettings(HINSTANCE instance, PWSTR command, int show) {
   cls.hbrBackground = nullptr;
   if (!RegisterClassW(&cls)) return 2;
   window = CreateWindowW(cls.lpszClassName, L"Yomitsugu - 設定と辞書", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                         CW_USEDEFAULT, CW_USEDEFAULT, 672, 585, nullptr, nullptr, instance, nullptr);
+                         CW_USEDEFAULT, CW_USEDEFAULT, 672, 599, nullptr, nullptr, instance, nullptr);
   if (!window) return 3;
   ShowWindow(window, show); UpdateWindow(window);
   if (wcscmp(command, L"--dictionary") == 0) OpenDictionary();

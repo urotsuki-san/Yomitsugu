@@ -33,11 +33,12 @@ int wmain(int argc, wchar_t** argv) {
   cls.lpszClassName = L"YomitsuguHiddenRender";
   if (!RegisterClassW(&cls)) return 3;
   // Render native controls on a separate desktop without switching the input desktop.
-  window = CreateWindowW(cls.lpszClassName,L"",WS_POPUP|WS_VISIBLE,0,0,656,546,nullptr,nullptr,cls.hInstance,nullptr);
+  window = CreateWindowW(cls.lpszClassName,L"",WS_POPUP|WS_VISIBLE,0,0,656,560,nullptr,nullptr,cls.hInstance,nullptr);
   if (!window || SendMessageW(model_combo,CB_GETCURSEL,0,0)!=0) return 4;
   RedrawWindow(window,nullptr,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW);
-  if (GetNextDlgTabItem(window,model_combo,FALSE)!=GetDlgItem(window,kOpen) ||
-      GetNextDlgTabItem(window,GetDlgItem(window,kOpen),TRUE)!=model_combo) return 7;
+  if (GetNextDlgTabItem(window,model_combo,FALSE)!=GetDlgItem(window,kInputKeys) ||
+      GetNextDlgTabItem(window,GetDlgItem(window,kInputKeys),FALSE)!=GetDlgItem(window,kOpen) ||
+      GetNextDlgTabItem(window,GetDlgItem(window,kInputKeys),TRUE)!=model_combo) return 7;
   for (int i=0;i<static_cast<int>(std::size(models));++i) {
     SendMessageW(model_combo,CB_SETCURSEL,i,0);
     SendMessageW(window,WM_COMMAND,MAKEWPARAM(kModel,CBN_SELCHANGE),reinterpret_cast<LPARAM>(model_combo));
@@ -55,7 +56,7 @@ int wmain(int argc, wchar_t** argv) {
   SendMessageW(window,WM_COMMAND,MAKEWPARAM(kModel,CBN_SELCHANGE),reinterpret_cast<LPARAM>(model_combo));
   HDC dc = CreateCompatibleDC(nullptr);
   BITMAPINFO info{}; info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
-  info.bmiHeader.biWidth=656; info.bmiHeader.biHeight=-546;
+  info.bmiHeader.biWidth=656; info.bmiHeader.biHeight=-560;
   info.bmiHeader.biPlanes=1; info.bmiHeader.biBitCount=32; info.bmiHeader.biCompression=BI_RGB;
   void* pixels = nullptr;
   HBITMAP bitmap=CreateDIBSection(dc,&info,DIB_RGB_COLORS,&pixels,nullptr,0);
@@ -69,7 +70,7 @@ int wmain(int argc, wchar_t** argv) {
     item.rcItem={0,0,rect.right-rect.left,rect.bottom-rect.top}; DrawAction(&item);
   }
   SetViewportOrgEx(dc,0,0,nullptr);
-  for (HWND child : {model_label, model_combo, model_detail, learning_checkbox, GetDlgItem(window,kClearLearning)}) {
+  for (HWND child : {model_label, model_combo, model_detail, GetDlgItem(window,kInputKeys), learning_checkbox, GetDlgItem(window,kClearLearning)}) {
     RECT rect{}; GetWindowRect(child,&rect);
     MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&rect),2);
     SetViewportOrgEx(dc,rect.left,rect.top,nullptr);
@@ -78,11 +79,11 @@ int wmain(int argc, wchar_t** argv) {
   GdiFlush();
   BITMAPFILEHEADER header{}; header.bfType=0x4d42;
   header.bfOffBits=sizeof(header)+sizeof(BITMAPINFOHEADER);
-  header.bfSize=header.bfOffBits+656*546*4;
+  header.bfSize=header.bfOffBits+656*560*4;
   std::ofstream file(output,std::ios::binary);
   file.write(reinterpret_cast<char*>(&header),sizeof(header));
   file.write(reinterpret_cast<char*>(&info.bmiHeader),sizeof(BITMAPINFOHEADER));
-  file.write(static_cast<char*>(pixels),656*546*4); file.close();
+  file.write(static_cast<char*>(pixels),656*560*4); file.close();
   SelectObject(dc,previous); DeleteObject(bitmap); DeleteDC(dc); DestroyWindow(window);
   SetThreadDesktop(originalDesktop); CloseDesktop(desktop);
   for(const auto& entry:std::filesystem::recursive_directory_iterator(fixture))

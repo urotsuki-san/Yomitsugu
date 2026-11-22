@@ -1,10 +1,16 @@
 # 開発ガイド
 
-Windows x64、CMake、MSVC、Swift 6.3.3を使います。配布物の生成にはInno Setup 6.7.1が必要です。依存先のコミットとモデルのハッシュは `scripts/ci/prepare_runtime.ps1` に固定しています。
+自分でソースからビルドする人向けの手順です。[配布版のインストールと使い方](../RELEASE.md)は別ページにあります。
+
+Windows x64で、Git、CMake、Visual Studio 2022（「C++ によるデスクトップ開発」）、Swift 6.3.3を用意します。Pythonの試験にはPython 3.10以上とuvを使います。配布物の生成にはInno Setup 6.7.1が必要です。依存先のコミットとモデルのハッシュは `scripts/ci/prepare_runtime.ps1` に固定しています。
 
 ## ビルド
 
+PowerShellでソースを取得し、リポジトリのフォルダーに移動して実行します。
+
 ```powershell
+git clone https://github.com/urotsuki-san/Yomitsugu.git
+cd Yomitsugu
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci/prepare_runtime.ps1
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/ci/build_hybrid_libraries.ps1
 cmake -S native -B native/build -A x64

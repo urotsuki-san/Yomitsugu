@@ -10,4 +10,8 @@ std::vector<std::string> AzookeyConvert(const std::string&, int, const std::stri
 void AzookeySetZenzai(bool, const std::string&, int) {}
 std::string AzookeyZenzaiStatus() { return "{}"; }
 bool AzookeySetUserDictionary(const std::string&) { return false; }
+std::vector<std::string> AzookeyAlternativeReading(const std::string&, const std::string&,
+                                                  const std::string&, const std::string&, AzookeyReadingComparison*) {
+  return {};
+}
 }

@@ -131,8 +131,9 @@ std::vector<size_t> ScalarOffsets(const std::string& s) {
 // Characters. Restrict cross-phase reuse to precomposed Japanese characters,
 // where the scalar count agrees with Swift's extended grapheme count.
 bool SameDictionarySearchAcrossPhases(const std::string& reading) {
-  if (reading.size()<=12*3 || reading.size()%3) return false;
+  if (reading.empty() || (reading.size()>=4*3 && reading.size()<=12*3) || reading.size()%3) return false;
   for (size_t i=0;i<reading.size();i+=3) {
+    if ((static_cast<unsigned char>(reading[i+2]) & 0xc0) != 0x80) return false;
     std::string_view ch(reading.data()+i,3);
     if (!(ch>=u8"ぁ" && ch<=u8"ゖ") && !(ch>=u8"ァ" && ch<=u8"ヺ") &&
         ch!=u8"ー" && ch!=u8"、" && ch!=u8"。" && ch!=u8"・") return false;
@@ -236,7 +237,8 @@ std::vector<std::string> AzookeyConvert(const std::string& reading, int limit,
   const bool use_model = model_enabled && !dictionary_preview;
   const bool extended = startup_model == ConversionModel::ExtendedSearch || startup_model == ConversionModel::CompactExtendedSearch;
   const bool deep = extended && refine && !shallow_search;
-  const bool same_dictionary = !use_model && convert_context && SameDictionarySearchAcrossPhases(reading);
+  const bool phase_independent = !use_model && convert_context && SameDictionarySearchAcrossPhases(reading);
+  const bool same_dictionary = phase_independent && reading.size()>12*3;
   // Length prefixes keep arbitrary input bytes, including embedded NULs, distinct.
   std::string key;
   key.reserve(1 + 2 * sizeof(std::uint32_t) + reading.size() + left.size() + right.size());
@@ -266,7 +268,7 @@ std::vector<std::string> AzookeyConvert(const std::string& reading, int limit,
     });
     const float first_score=!items.empty() && items.front().corresponding_count==count
         ? items.front().score : -std::numeric_limits<float>::infinity();
-    if (!use_model && refine && part_capture && part_capture->Matches(reading,left,right))
+    if (!use_model && (refine || phase_independent) && part_capture && part_capture->Matches(reading,left,right))
       part_capture->first_score=first_score;
     std::vector<std::string> values;
     for (auto& item : items) {
@@ -294,7 +296,7 @@ std::vector<std::string> AzookeyConvert(const std::string& reading, int limit,
     return values;
   }
   ages.splice(ages.begin(), ages, found->second.age);
-  if (!use_model && refine && part_capture && part_capture->Matches(reading,left,right))
+  if (!use_model && (refine || phase_independent) && part_capture && part_capture->Matches(reading,left,right))
     part_capture->first_score=found->second.first_score;
   return found->second.values.read(static_cast<size_t>(limit));
 }
@@ -316,22 +318,70 @@ std::string AzookeyDictionaryParts(const std::string& reading, const std::string
   if (runtime_enabled) set_enabled(true);
   return result;
 }
-std::vector<std::string> AzookeyAlternativeReading(const std::string& reading,const std::string& alternative,
-                                                  const std::string& left,const std::string& right) {
-  auto first_score=part_capture && part_capture->Matches(reading,left,right) ? part_capture->first_score
-      : -std::numeric_limits<float>::infinity();
-  const auto n=ScalarOffsets(reading).size()-1;
-  if (!std::isfinite(first_score)) {
-    for (const auto& c:ParseAzookeyCandidates(AzookeyDictionaryParts(reading,left,right))) {
-      if (c.corresponding_count==n) { first_score=c.score; break; }
+std::vector<std::string> AzookeyAlternativeReading(const std::string& reading, const std::string& alternative,
+                                                  const std::string& left, const std::string& right,
+                                                  AzookeyReadingComparison* state) {
+  AzookeyReadingComparison temporary;
+  auto& comparison = state ? *state : temporary;
+  if (!comparison.remaining) return {};
+  --comparison.remaining;
+  comparison.first_gain = -std::numeric_limits<float>::infinity();
+  const bool saved = comparison.sample && comparison.sample->original == reading && comparison.sample->alternate == alternative;
+  if (saved) comparison.original_score = comparison.sample->original_score;
+  if (std::isnan(comparison.original_score)) {
+    comparison.original_score = part_capture && part_capture->Matches(reading,left,right) ? part_capture->first_score
+        : -std::numeric_limits<float>::infinity();
+    const auto n = ScalarOffsets(reading).size()-1;
+    if (!std::isfinite(comparison.original_score)) {
+      for (const auto& c : ParseAzookeyCandidates(AzookeyDictionaryParts(reading,left,right))) {
+        if (c.corresponding_count == n) { comparison.original_score = c.score; break; }
+      }
     }
   }
-  if (!std::isfinite(first_score) || ScalarOffsets(alternative).size()-1!=n) return {};
+  auto first_score = comparison.original_score;
+  const auto alternative_count = ScalarOffsets(alternative).size()-1;
+  if (!std::isfinite(first_score)) return {};
+  std::vector<AzookeyCandidate> fetched;
+  if (!saved) fetched = ParseAzookeyCandidates(AzookeyDictionaryParts(alternative,left,right));
+  auto* sample = comparison.sample;
+  if (!saved && sample && sample->alternate.empty()) {
+    size_t count = 0, bytes = 0;
+    for (const auto& c : fetched) {
+      if (c.corresponding_count != alternative_count) continue;
+      ++count;
+      bytes += c.text.size();
+    }
+    // Partial-conversion rows never participate in this score comparison.
+    if (count && count <= 32 && bytes <= 4096) {
+      sample->original = reading;
+      sample->alternate = alternative;
+      sample->original_score = comparison.original_score;
+      sample->candidates.reserve(count);
+      for (auto& c : fetched)
+        if (c.corresponding_count == alternative_count) sample->candidates.push_back(std::move(c));
+    }
+  }
+  const auto& alternatives = sample && sample->original == reading && sample->alternate == alternative ? sample->candidates : fetched;
+  if (!comparison.incumbent.empty()) {
+    // A pre-existing typo repair may have this reading already. Compare the
+    // suggested spelling to its incumbent on the same dictionary score scale.
+    // For an unreturned incumbent, use the last full candidate as an upper bound.
+    float incumbent_score = -std::numeric_limits<float>::infinity();
+    for (const auto& c : alternatives) {
+      if (c.corresponding_count != alternative_count || !std::isfinite(c.score)) continue;
+      incumbent_score = c.score;
+      if (c.text == comparison.incumbent) break;
+    }
+    first_score = std::max(first_score, incumbent_score);
+  }
   std::vector<std::string> result;
-  for (const auto& c:ParseAzookeyCandidates(AzookeyDictionaryParts(alternative,left,right))) {
-    if (c.corresponding_count!=n) continue;
-    if (!std::isfinite(c.score) || c.score<=first_score) break;
-    if (c.text!=alternative && std::find(result.begin(),result.end(),c.text)==result.end()) result.push_back(c.text);
+  for (const auto& c : alternatives) {
+    if (c.corresponding_count!=alternative_count) continue;
+    if (!std::isfinite(c.score) || c.score<=first_score+comparison.minimum_gain) break;
+    if ((c.text != alternative || comparison.include_kana) && std::find(result.begin(), result.end(), c.text) == result.end()) {
+      if (result.empty()) comparison.first_gain = c.score - first_score;
+      result.push_back(c.text);
+    }
     if (result.size()==2) break;
   }
   return result;

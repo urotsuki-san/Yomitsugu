@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="ja">
+<meta charset="utf-8">
+<title>Yomitsugu browser fixture</title>
+<label>検索 <input type="search" id="query" autocomplete="off" autofocus></label>
+<label>文章 <textarea id="body" autocomplete="off"></textarea></label>
+<button id="end">終了</button>
+<label>読みの変換 <input id="spelling" autocomplete="off"></label>
+<output id="status"></output>
+<script>
+"use strict";
+const fields = [document.querySelector("#query"), document.querySelector("#body"), document.querySelector("#spelling")];
+const log = [];
+const token = new URLSearchParams(location.search).get("token");
+function publish(event) {
+  if (event) log.push({field:event.target.id, type:event.type, data:event.data || "", key:event.key, code:event.code, trusted:event.isTrusted,
+                       value:event.target.value, ms:Math.round(performance.now())});
+  if (token) fetch("/"+token+"/events", {method:"POST",headers:{"Content-Type":"application/json"},
+    body:JSON.stringify({sequence:log.length,active:document.activeElement.id,
+      values:fields.map(f=>f.value), events:log})}).catch(()=>{});
+}
+for (const field of [...fields, document.querySelector("#end")]) for (const type of ["focus","keydown","keyup","compositionstart","compositionupdate","compositionend","input"]) {
+  field.addEventListener(type,publish);
+}
+fields[0].focus();
+const status=document.querySelector("#status");
+status.textContent=(fields[0].type==="search" && fields[1].tagName==="TEXTAREA" && document.activeElement===fields[0]) ? "fixture-ready" : "fixture-failed";
+publish();
+</script>
+</html>

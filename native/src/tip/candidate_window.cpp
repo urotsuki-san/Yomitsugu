@@ -5,6 +5,10 @@
 namespace {
 constexpr wchar_t kClass[] = L"ImeMixedCandidateWindow";
 std::mutex class_mutex;
+UINT PreferencesMessage() {
+  static const UINT message = RegisterWindowMessageW(ime::kInputPreferencesChanged);
+  return message;
+}
 std::wstring Widen(const std::string& text) {
   int count = MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, text.data(), static_cast<int>(text.size()), nullptr, 0);
   if (count <= 0) return {};
@@ -24,8 +28,8 @@ bool CandidateWindow::Create(HINSTANCE instance, HWND parent) {
   if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
   // 入力先が閉じられても、変換結果の受信は止めない。
   if (!poll_window_) {
-    poll_window_ = CreateWindowExW(0, kClass, L"", 0, 0, 0, 0, 0,
-                                  HWND_MESSAGE, nullptr, instance, this);
+    poll_window_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClass, L"", WS_POPUP, 0, 0, 0, 0,
+                                  nullptr, nullptr, instance, this);
     if (!poll_window_) return false;
 
   }
@@ -134,6 +138,10 @@ LRESULT CALLBACK CandidateWindow::WndProc(HWND hwnd, UINT msg, WPARAM w, LPARAM 
   }
   if (self) {
     try {
+      if (msg >= 0xc000 && msg == PreferencesMessage() && hwnd == self->poll_window_ && self->service_) {
+        self->service_->ReloadInputPreferences();
+        return 0;
+      }
       if (msg == ime::kEngineReplyMessage && hwnd == self->poll_window_ && self->service_) {
         self->service_->OnEngineReply(static_cast<DWORD>(w),static_cast<DWORD>(l));
         return 0;
@@ -150,7 +158,9 @@ LRESULT CALLBACK CandidateWindow::WndProc(HWND hwnd, UINT msg, WPARAM w, LPARAM 
         auto old = SelectObject(dc, self->font_); SetBkMode(dc, TRANSPARENT);
         SetTextColor(dc, GetSysColor(COLOR_WINDOWTEXT));
         const auto n=SendMessageW(self->list_,LB_GETCOUNT,0,0), idx=SendMessageW(self->list_,LB_GETCURSEL,0,0);
-        const auto help=std::to_wstring(idx+1)+L" / "+std::to_wstring(n)+L"     Space 次候補    Enter 確定    Esc 戻る";
+        const auto next_key = self->service_ && !self->service_->TabSelectsCandidates() ? L"Space" : L"Tab";
+        const auto help = std::to_wstring(idx + 1) + L" / " + std::to_wstring(n) +
+                          L"     " + next_key + L" 次候補    Enter 確定    Esc 戻る";
         DrawTextW(dc,help.c_str(),-1,&rect,DT_CENTER|DT_VCENTER|DT_SINGLELINE|DT_END_ELLIPSIS);
         SelectObject(dc, old); EndPaint(hwnd, &ps); return 0;
       }

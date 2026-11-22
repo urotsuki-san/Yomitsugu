@@ -1,0 +1,22 @@
+#pragma code_page(65001)
+#include <windows.h>
+#include "shortcut_dialog_ids.h"
+
+IDD_INPUT_PREFERENCES DIALOGEX 0, 0, 310, 211
+STYLE DS_SETFONT | DS_MODALFRAME | DS_CENTER | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "入力キーの設定"
+FONT 9, "Yu Gothic UI"
+BEGIN
+    LTEXT           "日本語入力と直接入力の切り替え", -1, 12, 10, 285, 13
+    CONTROL         "既定の切り替えキーを使う(&D)", IDC_SHORTCUT_DEFAULT, "Button", BS_AUTORADIOBUTTON | WS_GROUP | WS_TABSTOP, 16, 27, 279, 14
+    CONTROL         "キーボードで切り替えない（マウスで切り替え）(&M)", IDC_SHORTCUT_OFF, "Button", BS_AUTORADIOBUTTON, 16, 44, 280, 14
+    CONTROL         "自分で登録する(&U)", IDC_SHORTCUT_CUSTOM, "Button", BS_AUTORADIOBUTTON, 16, 61, 279, 14
+    LTEXT           "登録するキー(&K)", -1, 27, 82, 74, 13, WS_GROUP
+    EDITTEXT        IDC_SHORTCUT_KEYS, 103, 79, 191, 19, ES_READONLY | ES_AUTOHSCROLL | WS_TABSTOP
+    LTEXT           "", IDC_SHORTCUT_HINT, 27, 103, 267, 31, SS_NOPREFIX
+    CONTROL         "入力中のTabで変換候補を選ぶ(&T)", IDC_SHORTCUT_TAB, "Button", BS_AUTOCHECKBOX | WS_GROUP | WS_TABSTOP, 16, 142, 280, 15
+    LTEXT           "外すと、Tabは入力中のアプリに渡ります。", -1, 27, 160, 270, 13
+    PUSHBUTTON      "既定に戻す(&R)", IDC_SHORTCUT_RESET, 12, 182, 85, 20
+    DEFPUSHBUTTON   "保存(&S)", IDOK, 165, 182, 63, 20
+    PUSHBUTTON      "キャンセル", IDCANCEL, 234, 182, 63, 20
+END

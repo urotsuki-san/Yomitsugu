@@ -1,5 +1,5 @@
 #ifndef AppVersion
-#define AppVersion "0.2.10-hybrid.12"
+#define AppVersion "0.2.10-hybrid.14"
 #endif
 #ifndef PackageRoot
 #define PackageRoot AddBackslash(SourcePath) + "..\dist\yomitsugu-0.2.10-preview"

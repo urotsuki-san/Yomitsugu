@@ -329,9 +329,15 @@ struct TipStabilityTest {
         keyStartMs.push_back(std::chrono::duration<double,std::milli>(sent-range.start).count());
       }
       const double last=Ms(range.start);
+      double candidatesReadyMs = -1;
       if (casesPath) {
         std::cout<<"settling"<<std::endl;
-        while (Ms(range.start)<last+observeMs) pump();
+        while (Ms(range.start)<last+observeMs) {
+          if (candidatesReadyMs < 0 && !service.session_.typing() &&
+              service.session_.candidates_ready() && !doc.queued)
+            candidatesReadyMs = Ms(range.start) - last;
+          pump();
+        }
       } else while(service.session_.typing() || !service.session_.candidates_ready() || doc.queued) {
         if(Ms(range.start)>last+10000)return 6;
         pump();
@@ -342,6 +348,7 @@ struct TipStabilityTest {
       runs.push_back({{"gap",trial.gap},{"last_key",last},{"events",range.events},{"key_ms",keyMs},{"key_start_ms",keyStartMs},{"window_ms",observeMs},{"final",finalText},
                       {"expected",trial.expected},{"worker",resources}});
       if (casesPath) {
+        runs.back()["candidates_ready_ms"] = candidatesReadyMs < 0 ? Json(nullptr) : Json(candidatesReadyMs);
         const bool hold = _wgetenv(L"YOMITSUGU_BENCHMARK_HOLD") && &trial == &trials.back();
         if (hold) {
           const auto wait=Clock::now();

@@ -2,6 +2,7 @@
 
 #include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ime {
@@ -29,8 +30,27 @@ bool AzookeySetUserDictionary(const std::string& json);
 // Request-local dictionary analysis; callers validate the input and word boundaries.
 std::string AzookeyDictionaryParts(const std::string& reading, const std::string& left,
                                    const std::string& right);
-std::vector<std::string> AzookeyAlternativeReading(const std::string& reading,const std::string& alternative,
-                                                  const std::string& left,const std::string& right);
+// One alternate spelling lookup shared by provisional and final ranking of
+// the same worker request. The dictionary and context are fixed for its life.
+struct AzookeyReadingSample {
+  std::string original, alternate;
+  float original_score = std::numeric_limits<float>::quiet_NaN();
+  std::vector<AzookeyCandidate> candidates;
+};
+// Reuse the original reading score across at most two alternate readings
+// for one input and its document context. Never share this across requests.
+struct AzookeyReadingComparison {
+  AzookeyReadingSample* sample = nullptr;
+  int remaining = 2;
+  float original_score = std::numeric_limits<float>::quiet_NaN();
+  float minimum_gain = 0;
+  float first_gain = -std::numeric_limits<float>::infinity();
+  std::string_view incumbent;
+  bool include_kana = false;
+};
+std::vector<std::string> AzookeyAlternativeReading(const std::string& reading, const std::string& alternative,
+                                                  const std::string& left, const std::string& right,
+                                                  AzookeyReadingComparison* comparison = nullptr);
 class AzookeyPartCapture {
  public:
   AzookeyPartCapture(const std::string& reading,const std::string& left,const std::string& right);

@@ -110,9 +110,36 @@ int wmain(int argc, wchar_t** argv) {
           "an uncorroborated partial entry follows whole-phrase alternatives");
     std::filesystem::remove(path);
   }
+  {
+    DecodeInput input;
+    input.raw_text = "geninnw";
+    Check(public_dictionary.UnfinishedRomaji(input) == u8"げにんw", "pending Japanese keeps its last consonant");
+    input.raw_text = "geninnwosh";
+    Check(public_dictionary.UnfinishedRomaji(input) == u8"げにんをsh", "pending digraph stays editable");
+    for (const auto& raw : {"geninn", "genin", "Google", "github", "genius", "robot", "GitHubwotsukau", "version2.12"}) {
+      input.raw_text = raw;
+      Check(public_dictionary.UnfinishedRomaji(input).empty(), "complete, literal and mixed inputs keep their conversion path");
+    }
+    input.raw_text = "geninnw";
+    input.field = "identifier";
+    Check(public_dictionary.UnfinishedRomaji(input).empty(), "identifier does not enter pending Japanese mode");
+  }
   auto DecodeWithPublic = [&](DecodeInput input) {
     auto list = Decode(input); public_dictionary.Apply(input, &list, true); return list;
   };
+  {
+    DecodeInput input;
+    input.raw_text = "geninn";
+    input.candidate_limit = 16;
+    const auto result = DecodeWithPublic(input);
+    Check(!result.empty() && result.front().output_text == u8"原因" &&
+          Contains(result, u8"下人") && Contains(result, input.raw_text),
+          "missing nasal separator preserves literal, original word, and likely correction");
+    input.left_context = u8"昔の下人は、";
+    const auto repeated = DecodeWithPublic(input);
+    Check(repeated.size() >= 2 && repeated.front().output_text == u8"下人" &&
+          Contains(repeated, u8"原因"), "document spelling keeps its lead across a nasal ambiguity");
+  }
   {
     DecodeInput input;
     input.raw_text = "version2.12";
@@ -397,6 +424,8 @@ int wmain(int argc, wchar_t** argv) {
     {
       std::ofstream entries(profile / L"user_dictionary.tsv", std::ios::binary);
       entries << u8"version4.1\t社内安定版\t名詞\n";
+      entries << u8"げにん\t現人\t名詞\n";
+      entries << u8"geninnw\t社内手順\t名詞\n";
     }
     request.raw_text="version4.1"; channel.Submit(request); done=false; list.clear();
     until=GetTickCount64()+30000;
@@ -406,6 +435,24 @@ int wmain(int argc, wchar_t** argv) {
     }
     Check(done && !list.empty() && list.front().output_text==u8"社内安定版",
           "an exact personal entry may intentionally omit a version number");
+    request.raw_text = "geninn";
+    channel.Submit(request); done = false; list.clear();
+    until = GetTickCount64() + 30000;
+    while (GetTickCount64() < until && channel.running()) {
+      if (channel.Poll(&reply, &list)) { done = true; break; }
+      Sleep(5);
+    }
+    Check(done && !list.empty() && list.front().output_text == u8"現人",
+          "personal dictionary wins over a possible missing nasal separator");
+    request.raw_text = "geninnw";
+    channel.Submit(request); done = false; list.clear();
+    until = GetTickCount64() + 30000;
+    while (GetTickCount64() < until && channel.running()) {
+      if (channel.Poll(&reply,&list)) { done = true; break; }
+      Sleep(5);
+    }
+    Check(done && !list.empty() && list.front().output_text == u8"社内手順" && Contains(list,"geninnw"),
+          "explicit dictionary spelling wins while pending literal remains selectable");
     std::filesystem::remove(profile/L"user_dictionary.tsv");
     channel.Stop(); Check(!channel.running(),"owned worker stops without touching applications");
     std::filesystem::remove(profile/L"learning.json");std::filesystem::remove(profile/L"settings.json");std::filesystem::remove(profile);

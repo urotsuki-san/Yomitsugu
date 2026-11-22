@@ -1802,6 +1802,7 @@ void Session::BumpInteraction() {
   ++candidate_list_generation_;
   manual_lock_ = false;
   awaiting_candidates_ = false;
+  pending_tab_steps_ = 0;
 }
 
 DecodeInput Session::decode_input() const {
@@ -1892,6 +1893,8 @@ bool Session::ApplyCandidates(const DecodeInput& request, std::vector<Candidate>
     RememberPreview(raw_text_,candidates.front());
   } else ClearPreview();
   candidates_ = std::move(candidates); selected_index_ = 0;
+  SelectPendingTab(pending_tab_steps_);
+  pending_tab_steps_ = 0;
   resolved_revision_ = revision_; resolved_context_ = context_generation_;
   awaiting_candidates_ = false;
   return true;
@@ -2080,16 +2083,38 @@ void Session::PressSpace() {
     return;
   }
   if (a == SpaceAction::kStartConversion) {
-    phase_ = "end_of_phrase";
-    BumpInteraction();
-    manual_lock_ = true;
-    editing_ = false;
-    awaiting_candidates_ = deferred_decoding_;
-    selected_index_ = 0;
-    RebuildSegments();
+    StartCandidateSelection();
     return;
   }
   Type(" ");
+}
+
+void Session::StartCandidateSelection() {
+  const bool complete = phase_ == "end_of_phrase" && !editing_ && candidates_ready();
+  phase_ = "end_of_phrase";
+  BumpInteraction();
+  manual_lock_ = true;
+  editing_ = false;
+  awaiting_candidates_ = deferred_decoding_ && !complete;
+  selected_index_ = 0;
+  RebuildSegments();
+}
+
+void Session::PressTab(bool reverse) {
+  if (!composing()) return;
+  if (!is_converting()) StartCandidateSelection();
+  else if (awaiting_candidates_) pending_tab_steps_ += reverse ? -1 : 1;
+  else if (reverse) PressUp();
+  else PressDown();
+}
+
+bool Session::SelectPendingTab(int64_t steps) {
+  if (!manual_lock_ || candidates_.empty()) return false;
+  const auto count = static_cast<int64_t>(candidates_.size());
+  const int index = static_cast<int>((steps % count + count) % count);
+  if (index == selected_index_) return false;
+  selected_index_ = index;
+  return true;
 }
 
 void Session::PressShiftSpace() {

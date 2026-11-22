@@ -96,7 +96,13 @@ int wmain(int argc, wchar_t** argv) {
   auto settings_revision = ime::ReadFileRevision(settings_path);
   auto configured = learning.model();
   std::optional<HybridRouter> router;
+  struct PreviousNasal {
+    std::string raw, left, right;
+    ime::AzookeyReadingSample sample;
+  };
+  std::optional<PreviousNasal> previous_nasal;
   auto configure = [&]() {
+    previous_nasal.reset();
     router.emplace(configured,public_bundled.parent_path()/L"models");
     ime::AzookeySelectStartupModel(router->enabled()?ime::ConversionModel::CompactExtendedSearch:configured);
   };
@@ -137,6 +143,7 @@ int wmain(int argc, wchar_t** argv) {
       }
       const auto revision = ime::ReadFileRevision(settings_path);
       if (revision != settings_revision) {
+        previous_nasal.reset();
         settings_revision = revision;
         const auto selected = learning.model();
         if (selected != configured) { configured = selected; configure(); }
@@ -155,6 +162,7 @@ int wmain(int argc, wchar_t** argv) {
           request.phase == "end_of_phrase" && !request.dictionary_preview && !request.shallow_search;
       hybrid.SetCancelEvent(subscribed ? reinterpret_cast<HANDLE>(j.value("cancel_event", uintptr_t{0})) : nullptr);
       if (learning_request) {
+        previous_nasal.reset();
         const auto chosen = j.at("chosen").get<std::string>();
         const auto previous = j.value("previous", "");
         const bool explicit_choice = j.value("explicit", true), literal = j.value("f10", false);
@@ -178,6 +186,7 @@ int wmain(int argc, wchar_t** argv) {
       hybrid.CheckCancelled();
       std::error_code ec;
       auto stamp = ime::ReadFileRevision(dictionary_path);
+      if (stamp != dictionary_revision) previous_nasal.reset();
       if (stamp && stamp != dictionary_revision) {
         std::string error;
         if (dictionary.Load(dictionary_path, &error)) {
@@ -190,6 +199,7 @@ int wmain(int argc, wchar_t** argv) {
       }
       auto public_path = ime::PublicDictionaryPath(public_bundled, public_override);
       auto public_stamp = ime::ReadFileRevision(public_path);
+      if (public_path != public_loaded_path || public_stamp != public_revision) previous_nasal.reset();
       if (public_stamp && (public_path != public_loaded_path || public_stamp != public_revision)) {
         std::string error;
         if (public_dictionary.Load(public_path, &error, true)) {
@@ -230,14 +240,46 @@ int wmain(int argc, wchar_t** argv) {
       const bool verify_suffix = search_models && hybrid.verifies_dictionary() && request.field == "prose" &&
           request.phase != "typing" && request.right_context.empty() && hybrid_reading.empty() &&
           ime::SplitShortLatinSuffix(request.raw_text, &latin_prefix, &suffix_reading);
-      const bool dictionary_first=hybrid.enabled() && (verify_suffix || request.phase=="typing" || !hybrid_reading.empty() || hybrid.LowMemory());
+      const auto unfinished = hybrid.verifies_dictionary() && hybrid_reading.empty() && !verify_suffix
+          ? public_dictionary.UnfinishedRomaji(request) : std::string{};
+      const bool dictionary_first=hybrid.enabled() && (verify_suffix || request.phase=="typing" ||
+          !hybrid_reading.empty() || !unfinished.empty() || hybrid.LowMemory());
       ime::AzookeySetDictionaryPreview(dictionary_first || !search_models);
       std::vector<ime::Candidate> result;
-      auto apply_preferences = [&](std::vector<ime::Candidate>& rows, bool protect_numbers = false, bool final = false) {
+      std::optional<ime::AzookeyReadingSample> nasal_sample;
+      const bool nasal_eligible = !low && hybrid.verifies_dictionary() && request.field == "prose" &&
+          ime::UserDictionary::MayPromoteNasal(request.raw_text);
+      const bool nasal_typing = nasal_eligible && request.phase == "typing";
+      std::string typed_reading;
+      if (nasal_typing) ime::ConvertRomajiChecked(request.raw_text,&typed_reading);
+      // Reuse only the dictionary evidence from the immediately preceding typing
+      // request. One extra final n preserves the reading, checked by the bridge.
+      if (nasal_eligible && previous_nasal && previous_nasal->left == request.left_context &&
+          previous_nasal->right == request.right_context &&
+          (previous_nasal->raw == request.raw_text || (previous_nasal->raw.back() == 'n' &&
+           request.raw_text.size() == previous_nasal->raw.size()+1 && request.raw_text.back() == 'n' &&
+           request.raw_text.compare(0,previous_nasal->raw.size(),previous_nasal->raw)==0)))
+        nasal_sample.emplace(std::move(previous_nasal->sample));
+      previous_nasal.reset();
+      if (nasal_typing && !nasal_sample) nasal_sample.emplace();
+      auto apply_preferences = [&](std::vector<ime::Candidate>& rows, bool protect_numbers = false, bool final = false,
+                                   ime::Candidate* early_promotion = nullptr) {
         ime::ApplyStandalonePreference(request,rows);
-        public_dictionary.Apply(request, &rows, true);
+        ime::Candidate typing_promotion;
+        if (final && nasal_typing) early_promotion = &typing_promotion;
+        public_dictionary.Apply(request, &rows, true, final, early_promotion, nasal_sample ? &*nasal_sample : nullptr);
         if (final && words.empty() && !has_personal_part &&
             (!dictionary.size() || (!kana.empty() && !hybrid.LowMemory()))) PreferDocumentSpelling(request,rows);
+        if (final && !unfinished.empty() && !rows.empty()) {
+          const auto tail = unfinished.find_first_of("abcdefghijklmnopqrstuvwxyz");
+          const auto suffix = std::string_view(unfinished).substr(tail);
+          const auto& first = rows.front().output_text;
+          if (first.size() < suffix.size() || first.compare(first.size()-suffix.size(),suffix.size(),suffix) != 0) {
+            auto existing = std::find_if(rows.begin(),rows.end(),[&](const auto& c){ return c.output_text == unfinished; });
+            if (existing == rows.end()) rows.insert(rows.begin(),ime::Candidate{unfinished,unfinished,false});
+            else std::rotate(rows.begin(),existing,existing+1);
+          }
+        }
         learning.Apply(request, &rows);
         // An exact personal entry may intentionally omit or replace a number.
         // For partial matches the ordinary digit-preservation rule still applies.
@@ -251,12 +293,20 @@ int wmain(int argc, wchar_t** argv) {
       std::function<void(const std::string&)> preview;
       std::string last_surface;
       unsigned previews_left = std::min(j.value("max_previews", 2u), 3u);
+      bool has_strong_preview = false;
+      auto emit_preview = [&](const ime::Candidate& candidate) {
+        --previews_left;
+        last_surface = candidate.output_text;
+        json packet={{"preview",json::array({{{"text",last_surface},{"reading",candidate.reading_text},{"raw",false}}})}};
+        auto bytes=packet.dump(); uint32_t length=static_cast<uint32_t>(bytes.size());
+        if (!write_response(bytes.data(),length)) throw std::runtime_error("preview pipe closed");
+      };
       if (hybrid.enabled() && search_models && j.value("allow_preview",false) && request.phase=="end_of_phrase" && request.field=="prose" &&
           !request.shallow_search && !kana.empty() && words.empty() &&
           request.raw_text.find_first_of("0123456789") == std::string::npos) {
         preview = [&](const std::string& surface) {
           hybrid.CheckCancelled();
-          if (!previews_left || surface.empty() || surface == last_surface) return;
+          if (has_strong_preview || !previews_left || surface.empty() || surface == last_surface) return;
           auto interim = result;
           interim.erase(std::remove_if(interim.begin(),interim.end(),[&](const auto& c){
             return c.output_text == surface;
@@ -264,13 +314,26 @@ int wmain(int argc, wchar_t** argv) {
           interim.insert(interim.begin(),ime::Candidate{surface,kana,false});
           apply_preferences(interim);
           if (interim.empty() || interim.front().is_raw || interim.front().output_text == last_surface) return;
-          --previews_left;
-          last_surface = interim.front().output_text;
-          json packet={{"preview",json::array({{{"text",last_surface},{"reading",kana},{"raw",false}}})}};
-          auto bytes=packet.dump(); uint32_t length=static_cast<uint32_t>(bytes.size());
-          if (!write_response(bytes.data(),length))
-            throw std::runtime_error("preview pipe closed");
+          emit_preview(interim.front());
         };
+      }
+      std::optional<ime::AzookeyPartCapture> capture;
+      const bool early_nasal = preview && previews_left && nasal_eligible && !has_personal_part;
+      if (early_nasal) {
+        if (!nasal_sample) nasal_sample.emplace();
+        if (capture_parts) capture.emplace(kana,request.left_context,request.right_context);
+        // Consult the same dictionary and personal choices before publishing a
+        // conflicting model spelling. Leave the complete model ranking intact.
+        result = ime::Decode(request);
+        auto interim = result;
+        ime::Candidate promotion;
+        apply_preferences(interim, false, false, &promotion);
+        if (!promotion.output_text.empty() && !interim.empty() && !interim.front().is_raw &&
+            interim.front().output_text == promotion.output_text) {
+          hybrid.CheckCancelled();
+          emit_preview(interim.front());
+          has_strong_preview = true;
+        }
       }
       // A subscribed long prose request can display Jinen while the dictionary
       // prepares its alternatives. Keep the result local to this request.
@@ -280,10 +343,12 @@ int wmain(int argc, wchar_t** argv) {
         primary = hybrid.Primary(hybrid_reading,iroha::Utf8ToUtf32(request.left_context));
         if (primary->terminated && !primary->text.empty()) preview(iroha::Utf32ToUtf8(primary->text));
       }
-      std::optional<ime::AzookeyPartCapture> capture;
       hybrid.CheckCancelled();
-      if (capture_parts) capture.emplace(kana,request.left_context,request.right_context);
-      result = ime::Decode(request);
+      if (!early_nasal) {
+        if (nasal_typing && !typed_reading.empty()) capture.emplace(typed_reading,request.left_context,request.right_context);
+        else if (capture_parts) capture.emplace(kana,request.left_context,request.right_context);
+        result = ime::Decode(request);
+      }
       hybrid.CheckCancelled();
       if (verify_suffix && !hybrid.LowMemory()) {
         const bool confirmed = !result.empty() && result.front().output_text.compare(0,latin_prefix.size(),latin_prefix)==0 &&
@@ -303,6 +368,16 @@ int wmain(int argc, wchar_t** argv) {
         if (!words.empty() && !hybrid.LowMemory()) paths.Protect(words,result);
       } else if (search_models) refiner.Apply(request, &result);
       apply_preferences(result, hybrid.enabled() && request.raw_text.find_first_of("0123456789") != std::string::npos, true);
+      if (nasal_typing && nasal_sample && !nasal_sample->alternate.empty() &&
+          request.left_context.size() <= 512 && request.right_context.size() <= 512)
+        previous_nasal.emplace(PreviousNasal{request.raw_text,request.left_context,request.right_context,std::move(*nasal_sample)});
+      // A phonetic suggestion may have discarded the unfinished consonant.
+      // Keep the exact keystrokes selectable even when the list was already full.
+      if (!unfinished.empty() && displayLimit > 1) {
+        auto raw = std::find_if(result.begin(),result.end(),[&](const auto& c) { return c.output_text == request.raw_text; });
+        if (raw == result.end()) result.push_back(ime::Candidate{request.raw_text,request.raw_text,true});
+        else raw->is_raw = true;
+      }
       if (result.size() > displayLimit) {
         auto literal = std::find_if(result.begin() + displayLimit, result.end(), [](const auto& row) { return row.is_raw; });
         if (displayLimit > 1 && literal != result.end()) result[displayLimit - 1] = std::move(*literal);

@@ -8,6 +8,7 @@
 HINSTANCE g_hInstance;
 void TextService::ClickCandidate(int) {}
 void TextService::PollEngine() {}
+void TextService::ReloadInputPreferences() {}
 using Clock = std::chrono::steady_clock;
 using Json = nlohmann::json;
 double Milliseconds(Clock::time_point start) {

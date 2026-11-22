@@ -47,3 +47,35 @@ jobs:
             audit/installed-e2e/*.json
           if-no-files-found: error
           retention-days: 14
+
+  chrome:
+    runs-on: windows-2025
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ inputs.artifact_run }}
+          github-token: ${{ github.token }}
+          name: yomitsugu-0.2.10-preview-installer
+          path: audit/download
+      - name: Prepare the installer and profile selector
+        shell: pwsh
+        run: |
+          $setups = @(Get-ChildItem audit/download -Recurse -File -Filter 'Yomitsugu-0.2.10-preview-x64-setup.exe')
+          if ($setups.Count -ne 1) { throw 'Expected one Windows installer' }
+          New-Item -ItemType Directory -Path audit/ci-installer | Out-Null
+          Copy-Item -LiteralPath $setups[0].FullName -Destination audit/ci-installer
+          cmake -S native -B build -A x64
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build --config Release --target chrome_select_profile
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: Test the installed IME in Chrome search and text fields
+        shell: pwsh
+        run: ./scripts/ci/chrome/run.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chrome-input-result
+          path: audit/chrome
+          retention-days: 7

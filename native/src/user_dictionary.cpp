@@ -130,11 +130,196 @@ std::vector<std::string> UserDictionary::Words(std::string_view reading, bool su
   if (public_index_) return public_index_->Words(reading, supplemental_only);
   return (supplemental_only ? supplemental_words_ : entries_).at(std::string(reading));
 }
+std::string UserDictionary::UnfinishedRomaji(const DecodeInput& input) const {
+  const auto& raw = input.raw_text;
+  if (input.field != "prose" || input.phase != "end_of_phrase" || raw.size() < 4 || raw.size() > 96 ||
+      raw.find_first_not_of("abcdefghijklmnopqrstuvwxyz'-") != raw.npos ||
+      !std::strchr("bcdfghjklmpqrstvwxyz", raw.back()) || (Flags(raw) & English) || ContainsLatinName(raw)) return {};
+  std::string display;
+  if (ConvertRomajiChecked(raw, &display)) return {};
+  const auto tail = display.find_first_of("abcdefghijklmnopqrstuvwxyz");
+  // At least three complete Japanese mora precede one unfinished syllable.
+  if (tail == display.npos || tail < 9 || display.size()-tail > 3) return {};
+  const auto consonants = display.substr(tail);
+  if (consonants.find_first_not_of("bcdfghjklmpqrstvwxyz") != consonants.npos) return {};
+  for (const char vowel : std::string_view("aiueo")) {
+    if (ConvertRomajiChecked(consonants+vowel, nullptr)) return display;
+  }
+  return {};
+}
 void UserDictionary::Apply(const DecodeInput& input, std::vector<Candidate>* candidates,
-                           bool public_dictionary) const {
+                           bool public_dictionary, bool final, Candidate* early_promotion, AzookeyReadingSample* sample) const {
   if (public_dictionary && ApplyEnglish(input,candidates)) return;
   ApplyExact(input, candidates, public_dictionary);
-  if (public_dictionary) ApplyCorrections(input, candidates);
+  if (public_dictionary) {
+    ApplyCorrections(input, candidates);
+    if (input.field != "prose" || input.candidate_limit <= 0 || candidates->empty()) return;
+    AzookeyReadingComparison comparison;
+    comparison.sample = sample;
+    if (final && input.phase != "typing" && !input.dictionary_preview && !input.shallow_search) {
+      if (!RecoverNasalBoundary(input, *candidates, comparison)) RecoverOmittedConsonant(input, *candidates, comparison);
+    } else if (early_promotion && RecoverNasalBoundary(input, *candidates, comparison, true)) {
+      *early_promotion = candidates->front();
+    }
+  }
+}
+namespace {
+bool PlaceRecoveredCandidate(const DecodeInput& input, std::vector<Candidate>& rows,
+                             const std::string& text, const std::string& reading, size_t position) {
+  if (position >= static_cast<size_t>(input.candidate_limit)) return false;
+  position = std::min(position, rows.size());
+  auto existing = std::find_if(rows.begin(), rows.end(), [&](const auto& row) { return row.output_text == text; });
+  if (existing != rows.end()) {
+    if (existing >= rows.begin()+position) std::rotate(rows.begin()+position, existing, existing+1);
+    return true;
+  }
+  if (rows.size() >= static_cast<size_t>(input.candidate_limit)) {
+    auto drop = rows.end()-1;
+    if (drop != rows.begin() && (drop->is_raw || drop->output_text == input.raw_text)) --drop;
+    if (static_cast<size_t>(drop-rows.begin()) < position) return false;
+    rows.erase(drop);
+  }
+  rows.insert(rows.begin()+position, Candidate{text, reading, false});
+  return true;
+}
+}  // namespace
+namespace {
+// size() denotes multiple possible boundaries. npos denotes none.
+bool StartsGrammaticalSuffix(std::string_view suffix) {
+  for (const std::string_view prefix : {u8"を",u8"に",u8"が",u8"は",u8"で",u8"と",u8"も",u8"の",u8"へ",u8"する",u8"して",u8"した"})
+    if (suffix.compare(0,prefix.size(),prefix)==0) return true;
+  return false;
+}
+size_t NasalBoundary(const std::string& raw) {
+  size_t boundary = raw.npos;
+  for (size_t i = 1; i + 2 < raw.size(); ++i) {
+    if (raw[i] != 'n' || !std::strchr("aiueo", raw[i-1]) || !std::strchr("aiueo", raw[i+1]) ||
+        raw[i+2] != 'n' || (i+3 < raw.size() && std::strchr("aiueoy", raw[i+3]))) continue;
+    if (boundary != raw.npos) return raw.size();
+    boundary = i;
+  }
+  return boundary;
+}
+}
+bool UserDictionary::MayPromoteNasal(const std::string& raw) {
+  if (raw.size() < 4 || raw.size() > 64 || raw.find('n') == raw.npos) return false;
+  const auto at = NasalBoundary(raw);
+  if (at >= raw.size()) return false;
+  // A word inside an unknown transliteration must not capture its suffix.
+  // For immediate display require the word to end here or precede a particle.
+  size_t suffix = at + 3;
+  if (suffix < raw.size() && raw[suffix] == 'n') ++suffix;
+  if (suffix == raw.size()) return true;
+  std::string tail;
+  return ConvertRomajiChecked(raw.substr(suffix), &tail) && StartsGrammaticalSuffix(tail);
+}
+bool UserDictionary::RecoverNasalBoundary(const DecodeInput& input, std::vector<Candidate>& rows,
+                                         AzookeyReadingComparison& comparison, bool top_only) const {
+  const auto& raw = input.raw_text;
+  if (raw.size() < 4 || raw.size() > 64 || raw.find('n') == raw.npos ||
+      raw.find_first_not_of("abcdefghijklmnopqrstuvwxyz") != raw.npos) return false;
+  size_t boundary = NasalBoundary(raw);
+  if (boundary == raw.size() || (top_only && boundary == raw.npos)) return false;
+  const bool whole_word = boundary == raw.npos;
+  if (whole_word) {
+    // Other vowel and palatalized boundaries are widely ambiguous. Offer
+    // just one complete dictionary word, while leaving the first choice intact.
+    if (raw.size() > 20 || input.candidate_limit < 2) return false;
+    for (size_t i = 1; i + 1 < raw.size(); ++i) {
+      if (raw[i] != 'n' || !std::strchr("aiueo", raw[i-1])) continue;
+      const char onset = raw[i+1];
+      const bool palatalized = onset == 'y' && i+2 < raw.size() && std::strchr("auo", raw[i+2]);
+      if (!std::strchr("aiueo", onset) && !palatalized) continue;
+      if (boundary != raw.npos) return false;
+      boundary = i;
+    }
+    if (boundary == raw.npos) return false;
+  }
+  std::string prefix, reading, alternate;
+  if (!ConvertRomajiChecked(raw, &reading) ||
+      !ConvertRomajiChecked(raw.substr(0,boundary+1) + "'" + raw.substr(boundary+1), &alternate)) return false;
+  // In a phrase, require a registered word that spans the changed syllables.
+  size_t begin = 0, end = alternate.size(), past_last_start = 1;
+  if (!whole_word) {
+    if (!ConvertRomajiChecked(raw.substr(0,boundary), &prefix)) return false;
+    end = prefix.size() + 9;
+    if (end > alternate.size() || alternate.compare(end-3,3,u8"ん") != 0) return false;
+    // One trailing n can still become the start of a longer katakana word.
+    // Wait for the next key or the ordinary end-of-phrase request when the
+    // literal reading lacks its own dictionary headword.
+    if (top_only && input.phase == "typing" && end == alternate.size() &&
+        raw.back() == 'n' && raw[raw.size()-2] != 'n' && !Flags(reading)) return false;
+    if (top_only && end < alternate.size() && !StartsGrammaticalSuffix(std::string_view(alternate).substr(end))) return false;
+    begin = prefix.size() > 12 ? prefix.size()-12 : 0;
+    past_last_start = prefix.size();
+  }
+  for (size_t start = begin; start < past_last_start; start+=3) {
+    const auto key = std::string_view(alternate).substr(start,end-start);
+    if (!Flags(key)) continue;
+    const auto words = Words(key);
+    const auto& original = rows.front().output_text;
+    // Preserve loanwords for which the proposed boundary would split the
+    // original transliteration and leave part of the word behind.
+    if (end < alternate.size() && original == ConvertCharacterClass(reading, VK_F7)) return false;
+    const std::string_view incumbent = rows.front().reading_text == alternate
+        ? std::string_view(original) : std::string_view{};
+    const bool is_headword = whole_word || Flags(alternate);
+    comparison.minimum_gain = is_headword && !top_only ? -5.0f : 5.0f;
+    comparison.incumbent = incumbent;
+    const auto offered = AzookeyAlternativeReading(reading, alternate, input.left_context, input.right_context, &comparison);
+    if (offered.empty()) return false;
+    const auto& text = offered.front();
+    if (std::none_of(words.begin(),words.end(),[&](const auto& word) {
+          return word != key && (whole_word ? text == word : text.find(word) != text.npos);
+        })) return false;
+    if (text == original) return !top_only || comparison.first_gain > 5.0f;
+    const bool repeated = !original.empty() &&
+        (input.left_context.find(original) != std::string::npos || input.right_context.find(original) != std::string::npos);
+    const size_t position = repeated || whole_word ? 1 : (comparison.first_gain > 5.0f ? 0 : 2);
+    if (top_only && position != 0) return false;
+    return PlaceRecoveredCandidate(input, rows, text, alternate, position);
+  }
+  return false;
+}
+void UserDictionary::RecoverOmittedConsonant(const DecodeInput& input, std::vector<Candidate>& rows,
+                                             AzookeyReadingComparison& comparison) const {
+  const auto& raw = input.raw_text;
+  if (input.candidate_limit < 3 || raw.size() < 3 || raw.size() > 20 ||
+      raw.find_first_not_of("abcdefghijklmnopqrstuvwxyz-") != raw.npos) return;
+  struct Repair { std::string reading; bool ambiguous = false; } geminate, nasal;
+  auto check = [&](Repair& repair, size_t at, const std::string& addition) {
+    if (repair.ambiguous) return;
+    std::string candidate;
+    if (!ConvertRomajiChecked(raw.substr(0,at) + addition + raw.substr(at), &candidate) ||
+        !(Flags(candidate) & Supplemental)) return;
+    if (!repair.reading.empty() && repair.reading != candidate) repair.ambiguous = true;
+    else repair.reading = std::move(candidate);
+  };
+  // Check whole-word dictionary entries before querying their scores. More
+  // than one eligible position for the same edit is deliberately ambiguous.
+  for (size_t i = 1; i+1 < raw.size(); ++i) {
+    if (!std::strchr("aiueo", raw[i-1]) || !std::strchr("bcdfghjkmprstwyz", raw[i])) continue;
+    if (std::strchr("bcdfghjkpstz", raw[i]) && raw[i] != raw[i+1]) check(geminate, i, std::string(1,raw[i]));
+    check(nasal, i, "n'");
+  }
+  if ((geminate.ambiguous || geminate.reading.empty()) && (nasal.ambiguous || nasal.reading.empty())) return;
+  std::string reading;
+  if (!ConvertRomajiChecked(raw, &reading)) return;
+  comparison.minimum_gain = -5.0f;
+  comparison.incumbent = {};
+  comparison.include_kana = true;
+  size_t position = 2;  // Keep the user's original first and second choices.
+  for (const auto* repair : {&geminate, &nasal}) {
+    if (repair->ambiguous || repair->reading.empty() || repair->reading == reading || !comparison.remaining) continue;
+    const auto words = Words(repair->reading, true);
+    if (std::find(words.begin(),words.end(),rows.front().output_text) != words.end()) continue;
+    const auto offered = AzookeyAlternativeReading(reading, repair->reading, input.left_context, input.right_context, &comparison);
+    for (const auto& text : offered) {
+      if (std::find(words.begin(), words.end(), text) == words.end()) continue;
+      if (PlaceRecoveredCandidate(input, rows, text, repair->reading, position)) ++position;
+      break;
+    }
+  }
 }
 bool UserDictionary::ApplyEnglish(const DecodeInput& input, std::vector<Candidate>* candidates) const {
   if (input.field!="prose" || input.candidate_limit<=0 || input.raw_text.size()>512) return false;
@@ -392,10 +577,7 @@ void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Cand
       if (!(Flags(prefix) & Supplemental) || original.compare(0,end,prefix)==0) continue;
       auto suffix=reading.substr(end);
       if (!suffix.empty()) {
-        bool grammatical=false;
-        for (auto particle : {u8"を",u8"に",u8"が",u8"は",u8"で",u8"と",u8"も",u8"の",u8"へ",u8"する",u8"して",u8"した"})
-          if (suffix.compare(0,std::strlen(particle),particle)==0) grammatical=true;
-        if (!grammatical || end*2<reading.size()) continue;
+        if (!StartsGrammaticalSuffix(suffix) || end*2<reading.size()) continue;
       }
       matches.push_back({std::move(prefix),std::move(suffix),repair});
       break;

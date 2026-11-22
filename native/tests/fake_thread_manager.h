@@ -6,6 +6,10 @@ class FakeThreadManager : public ITfThreadMgr, public ITfKeystrokeMgr, public IT
  public:
   ULONG refs = 1;
   bool fail_sink = false;
+  bool accept_shortcuts = false;
+  UINT shortcuts = 0;
+  GUID last_shortcut{};
+  IUnknown* compartment_provider = nullptr;
   ITfKeyEventSink* keys = nullptr;
   IUnknown* events = nullptr;
   STDMETHODIMP QueryInterface(REFIID id, void** out) override {
@@ -13,6 +17,7 @@ class FakeThreadManager : public ITfThreadMgr, public ITfKeystrokeMgr, public IT
     if (id == IID_IUnknown || id == IID_ITfThreadMgr) *out = static_cast<ITfThreadMgr*>(this);
     else if (id == IID_ITfKeystrokeMgr) *out = static_cast<ITfKeystrokeMgr*>(this);
     else if (id == IID_ITfSource) *out = static_cast<ITfSource*>(this);
+    else if (id == IID_ITfCompartmentMgr && compartment_provider) return compartment_provider->QueryInterface(id, out);
     else return E_NOINTERFACE;
     AddRef(); return S_OK;
   }
@@ -43,8 +48,14 @@ class FakeThreadManager : public ITfThreadMgr, public ITfKeystrokeMgr, public IT
   STDMETHODIMP KeyUp(WPARAM, LPARAM, BOOL*) override { return E_NOTIMPL; }
   STDMETHODIMP GetPreservedKey(ITfContext*, const TF_PRESERVEDKEY*, GUID*) override { return E_NOTIMPL; }
   STDMETHODIMP IsPreservedKey(REFGUID, const TF_PRESERVEDKEY*, BOOL*) override { return E_NOTIMPL; }
-  STDMETHODIMP PreserveKey(TfClientId, REFGUID, const TF_PRESERVEDKEY*, const WCHAR*, ULONG) override { return E_NOTIMPL; }
-  STDMETHODIMP UnpreserveKey(REFGUID, const TF_PRESERVEDKEY*) override { return E_NOTIMPL; }
+  STDMETHODIMP PreserveKey(TfClientId, REFGUID id, const TF_PRESERVEDKEY*, const WCHAR*, ULONG) override {
+    if (!accept_shortcuts) return E_NOTIMPL;
+    last_shortcut = id; ++shortcuts; return S_OK;
+  }
+  STDMETHODIMP UnpreserveKey(REFGUID, const TF_PRESERVEDKEY*) override {
+    if (!shortcuts) return E_FAIL;
+    --shortcuts; return S_OK;
+  }
   STDMETHODIMP SetPreservedKeyDescription(REFGUID, const WCHAR*, ULONG) override { return E_NOTIMPL; }
   STDMETHODIMP GetPreservedKeyDescription(REFGUID, BSTR*) override { return E_NOTIMPL; }
   STDMETHODIMP SimulatePreservedKey(ITfContext*, REFGUID, BOOL*) override { return E_NOTIMPL; }

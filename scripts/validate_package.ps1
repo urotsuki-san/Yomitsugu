@@ -2,7 +2,7 @@
 $taskRoot = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
 $taskPackage = Join-Path $taskRoot 'dist/yomitsugu-0.2.10-preview'
 $taskManifest = Get-Content -LiteralPath (Join-Path $taskPackage 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json
-if ($taskManifest.version -ne '0.2.10-hybrid.12' -or $taskManifest.architecture -ne 'x64') { throw 'Manifest version or architecture mismatch' }
+if ($taskManifest.version -ne '0.2.10-hybrid.14' -or $taskManifest.architecture -ne 'x64') { throw 'Manifest version or architecture mismatch' }
 if ((Get-FileHash -LiteralPath (Join-Path $taskRoot 'RELEASE.md') -Algorithm SHA256).Hash -ne
     (Get-FileHash -LiteralPath (Join-Path $taskPackage 'README.md') -Algorithm SHA256).Hash) {
     throw 'Packaged README differs from RELEASE.md'

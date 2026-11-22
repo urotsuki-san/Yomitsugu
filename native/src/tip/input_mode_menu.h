@@ -5,7 +5,9 @@
 // IMEの有効中に、Windowsの入力インジケーターへボタンとメニューを登録する。
 class InputModeMenu final : public ITfLangBarItemButton, public ITfSource {
  public:
-  InputModeMenu();
+  explicit InputModeMenu(TextService& service);
+  void Detach() { service_ = nullptr; }
+  void Refresh();
   STDMETHODIMP QueryInterface(REFIID iid, void** out) override;
   STDMETHODIMP_(ULONG) AddRef() override;
   STDMETHODIMP_(ULONG) Release() override;
@@ -23,6 +25,7 @@ class InputModeMenu final : public ITfLangBarItemButton, public ITfSource {
 
  private:
   ~InputModeMenu();
+  TextService* service_;
   LONG refs_ = 1;
   ITfLangBarItemSink* sink_ = nullptr;
 };

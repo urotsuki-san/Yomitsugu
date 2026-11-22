@@ -39,13 +39,13 @@ jobs:
         run: |
           cmake -S native -B native/build -A x64
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
-          cmake --build native/build --config Release --target policy_test channel_test public_index_test tip_stability_test learning_test app_update_test engine_test debug_dump ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
+          cmake --build native/build --config Release --target policy_test channel_test public_index_test tip_stability_test shortcut_dialog_test learning_test app_update_test engine_test debug_dump ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
           & native/build/Release/learning_test.exe
           if ($LASTEXITCODE -ne 0) { throw 'Learning cache test failed' }
           & native/build/Release/tip_stability_test.exe
           if ($LASTEXITCODE -ne 0) { throw 'TIP stability test failed' }
-          ctest --test-dir native/build -C Release -R "adaptive_|bundled_public_dictionary" --output-on-failure
+          ctest --test-dir native/build -C Release -R "adaptive_|bundled_public_dictionary|shortcut_dialog_test" --output-on-failure
           if ($LASTEXITCODE -ne 0) { throw "Hybrid regression failed" }
       - name: Dictionary update history
         shell: pwsh
@@ -124,6 +124,8 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'Model capacity boundary failed' }
           python scripts/evaluate_conversion.py --output audit/conversion-quality.json --check --baseline native/tests/conversion_baseline.json
           if ($LASTEXITCODE -ne 0) { throw 'conversion quality regression' }
+          python scripts/ci/preview_stability.py native/build/Release/ime_engine_host.exe
+          if ($LASTEXITCODE -ne 0) { throw 'worker preview regression' }
           python scripts/ci/context_quality.py native/build/Release/ime_engine_host.exe tests/context_conversion.json audit/context-quality.json --check
           if ($LASTEXITCODE -ne 0) { throw 'context conversion regression' }
           python scripts/ci/context_quality.py native/build/Release/ime_engine_host.exe tests/generated_typo_conversion.json audit/generated-typo-quality.json --baseline native/tests/generated_typo_baseline.json
