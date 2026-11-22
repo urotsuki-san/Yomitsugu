@@ -1,4 +1,6 @@
 #include "tip.h"
+#include <ime.h>
+#include <shlobj.h>
 #include "alternate_n.h"
 #include "tip_diagnostics.h"
 #include "input_mode_menu.h"
@@ -14,6 +16,16 @@
 #include <inputscope.h>
 
 namespace {
+constexpr GUID kToggleKeyboardMode = {0xbb0997b5,0xbc52,0x442c,{0xa2,0xbb,0x6d,0xbb,0xbb,0xdd,0x38,0x0d}};
+constexpr TF_PRESERVEDKEY kDefaultModeKeys[] = {
+  {VK_CAPITAL, TF_MOD_SHIFT | TF_MOD_ON_KEYUP},
+  {VK_DBE_ALPHANUMERIC, TF_MOD_SHIFT | TF_MOD_ON_KEYUP},
+  {VK_IME_OFF, TF_MOD_SHIFT | TF_MOD_ON_KEYUP},
+  {VK_DBE_DBCSCHAR, TF_MOD_ON_KEYUP},
+  {VK_DBE_SBCSCHAR, TF_MOD_ON_KEYUP},
+  {VK_KANJI, TF_MOD_ON_KEYUP},
+  {VK_OEM_3, TF_MOD_ALT | TF_MOD_ON_KEYUP},
+};
 void TipLog(const char*, ...) {}  // Release builds never record key codes or input.
 struct DiagnosticCounters {
   std::atomic<std::uint32_t> activate_calls{0};
@@ -468,7 +480,7 @@ void TextService::PollEngine() {
     }
     return;
   }
-  if (!CompartmentEnabled(thread_mgr_, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, true) ||
+  if (!KeyboardOpen() ||
       CompartmentEnabled(context_, GUID_COMPARTMENT_KEYBOARD_DISABLED, false) ||
       CompartmentEnabled(context_, GUID_COMPARTMENT_EMPTYCONTEXT, false)) {
     cand_window_.Hide();
@@ -579,6 +591,8 @@ STDMETHODIMP TextService::QueryInterface(REFIID riid, void** ppv) {
     *ppv = static_cast<ITfTextInputProcessor*>(this);
   } else if (IsEqualIID(riid, IID_ITfTextInputProcessorEx)) {
     *ppv = static_cast<ITfTextInputProcessorEx*>(this);
+  } else if (IsEqualIID(riid, IID_ITfCompartmentEventSink)) {
+    *ppv = static_cast<ITfCompartmentEventSink*>(this);
   } else if (IsEqualIID(riid, IID_ITfKeyEventSink)) {
     *ppv = static_cast<ITfKeyEventSink*>(this);
   } else if (IsEqualIID(riid, IID_ITfThreadMgrEventSink)) {
@@ -603,6 +617,9 @@ STDMETHODIMP_(ULONG) TextService::Release() {
 
 TextService::TextService() { ModuleAddRef(); session_.set_deferred_decoding(true); session_.set_learning_allowed(false); }
 TextService::~TextService() {
+  UnregisterModeShortcuts();
+  UnwatchKeyboardMode();
+  if (input_mode_menu_) input_mode_menu_->Detach();
   if (low_memory_event_) CloseHandle(low_memory_event_);
   if (lang_bar_mgr_ && input_mode_menu_) lang_bar_mgr_->RemoveItem(input_mode_menu_);
   if (input_mode_menu_) { input_mode_menu_->Release(); input_mode_menu_ = nullptr; }
@@ -703,11 +720,13 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* ptim, TfClientId tid) {
   if (!cand_window_.Create(g_hInstance, nullptr)) {
     activated_ = true; Deactivate(); return E_FAIL;
   }
+  WatchKeyboardMode();
+  ReloadInputPreferences();
   HRESULT langbar_hr = thread_mgr_->QueryInterface(IID_ITfLangBarItemMgr,
       reinterpret_cast<void**>(&lang_bar_mgr_));
   g_diagnostics.langbar_manager_result.store(langbar_hr);
   if (SUCCEEDED(langbar_hr) && lang_bar_mgr_) {
-    input_mode_menu_ = new (std::nothrow) InputModeMenu();
+    input_mode_menu_ = new (std::nothrow) InputModeMenu(*this);
     if (input_mode_menu_) {
       HRESULT add_hr = lang_bar_mgr_->AddItem(input_mode_menu_);
       g_diagnostics.langbar_add_result.store(add_hr);
@@ -730,6 +749,9 @@ HRESULT TextService::Deactivate() {
   engine_channel_.Stop();
   DetachComposition();
   if (thread_mgr_) {
+    UnregisterModeShortcuts();
+    UnwatchKeyboardMode();
+    if (input_mode_menu_) input_mode_menu_->Detach();
     if (lang_bar_mgr_ && input_mode_menu_) lang_bar_mgr_->RemoveItem(input_mode_menu_);
     if (input_mode_menu_) { input_mode_menu_->Release(); input_mode_menu_ = nullptr; }
     if (lang_bar_mgr_) { lang_bar_mgr_->Release(); lang_bar_mgr_ = nullptr; }
@@ -753,6 +775,116 @@ HRESULT TextService::Deactivate() {
   cand_window_.Destroy();
   activated_ = false;
   TipLog("Deactivate done");
+  return S_OK;
+}
+
+void TextService::ReloadInputPreferences() {
+  if (restricted_ || !thread_mgr_) return;
+  if (preferences_directory_.empty()) {
+    PWSTR folder = nullptr;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &folder))) {
+      preferences_directory_ = std::filesystem::path(folder) / L"ImeMixed";
+      CoTaskMemFree(folder);
+    }
+  }
+  const auto next = preferences_directory_.empty() ? ime::InputPreferences{} :
+                    ime::ReadInputPreferences(preferences_directory_);
+  const auto old = input_preferences_.mode_shortcut;
+  input_preferences_ = next;
+  const auto& key = next.mode_shortcut;
+  if (activated_ && old.mode == key.mode && old.virtual_key == key.virtual_key &&
+      old.modifiers == key.modifiers) return;
+  UnregisterModeShortcuts();
+  RegisterModeShortcuts();
+}
+
+void TextService::RegisterModeShortcuts() {
+  mode_key_count_ = 0;
+  const auto& shortcut = input_preferences_.mode_shortcut;
+  if (shortcut.mode == ime::ShortcutMode::Default) {
+    static_assert(std::size(kDefaultModeKeys) == std::tuple_size_v<decltype(mode_keys_)>);
+    std::copy(std::begin(kDefaultModeKeys), std::end(kDefaultModeKeys), mode_keys_.begin());
+    mode_key_count_ = static_cast<unsigned>(mode_keys_.size());
+  } else if (shortcut.mode == ime::ShortcutMode::Custom) {
+    UINT modifiers = TF_MOD_ON_KEYUP;
+    if (shortcut.modifiers & MOD_ALT) modifiers |= TF_MOD_ALT;
+    if (shortcut.modifiers & MOD_SHIFT) modifiers |= TF_MOD_SHIFT;
+    if (shortcut.modifiers & MOD_CONTROL) modifiers |= TF_MOD_CONTROL;
+    mode_keys_[mode_key_count_++] = {shortcut.virtual_key, modifiers};
+  }
+
+  ITfKeystrokeMgr* keys = nullptr;
+  if (!keyboard_open_ || restricted_ || FAILED(thread_mgr_->QueryInterface(IID_PPV_ARGS(&keys)))) return;
+  constexpr wchar_t label[] = L"よみつぐ 日本語入力の切り替え";
+  for (unsigned i = 0; i < mode_key_count_; ++i) {
+    if (keys->PreserveKey(client_id_, kToggleKeyboardMode, &mode_keys_[i],
+                          label, static_cast<ULONG>(std::size(label) - 1)) == S_OK)
+      registered_shortcuts_ |= 1u << i;
+  }
+  keys->Release();
+}
+
+void TextService::UnregisterModeShortcuts() {
+  ITfKeystrokeMgr* keys = nullptr;
+  if (registered_shortcuts_ && thread_mgr_ && SUCCEEDED(thread_mgr_->QueryInterface(IID_PPV_ARGS(&keys)))) {
+    for (unsigned i = 0; i < mode_key_count_; ++i)
+      if (registered_shortcuts_ & (1u << i)) keys->UnpreserveKey(kToggleKeyboardMode, &mode_keys_[i]);
+    keys->Release();
+  }
+  registered_shortcuts_ = 0;
+  mode_key_count_ = 0;
+}
+
+void TextService::WatchKeyboardMode() {
+  ITfCompartmentMgr* manager = nullptr;
+  if (FAILED(thread_mgr_->QueryInterface(IID_PPV_ARGS(&manager)))) return;
+  manager->GetCompartment(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, &keyboard_open_);
+  manager->Release();
+  ITfSource* source = nullptr;
+  if (keyboard_open_ && SUCCEEDED(keyboard_open_->QueryInterface(IID_PPV_ARGS(&source)))) {
+    source->AdviseSink(IID_ITfCompartmentEventSink, static_cast<ITfCompartmentEventSink*>(this), &mode_cookie_);
+    source->Release();
+  }
+}
+
+void TextService::UnwatchKeyboardMode() {
+  if (!keyboard_open_) return;
+  ITfSource* source = nullptr;
+  if (mode_cookie_ != TF_INVALID_COOKIE && SUCCEEDED(keyboard_open_->QueryInterface(IID_PPV_ARGS(&source)))) {
+    source->UnadviseSink(mode_cookie_);
+    source->Release();
+  }
+  mode_cookie_ = TF_INVALID_COOKIE;
+  keyboard_open_->Release();
+  keyboard_open_ = nullptr;
+}
+
+bool TextService::KeyboardOpen() const {
+  if (!keyboard_open_) return CompartmentEnabled(thread_mgr_, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, true);
+  VARIANT value{};
+  const bool open = keyboard_open_->GetValue(&value) != S_OK || value.vt != VT_I4 || value.lVal != 0;
+  VariantClear(&value);
+  return open;
+}
+
+HRESULT TextService::SetKeyboardOpen(bool open) {
+  if (!activated_ || !keyboard_open_) return E_UNEXPECTED;
+  if (restricted_) return E_ACCESSDENIED;
+  VARIANT value{};
+  value.vt = VT_I4;
+  value.lVal = open ? 1 : 0;
+  HRESULT hr = keyboard_open_->SetValue(client_id_, &value);
+  if (hr == S_OK && mode_cookie_ == TF_INVALID_COOKIE) OnChange(GUID_COMPARTMENT_KEYBOARD_OPENCLOSE);
+  return hr;
+}
+
+STDMETHODIMP TextService::OnChange(REFGUID id) {
+  if (id != GUID_COMPARTMENT_KEYBOARD_OPENCLOSE || !activated_) return S_OK;
+  if (!KeyboardOpen() && (session_.composing() || has_composition_)) {
+    DetachComposition();
+    ResetSessionState();
+  }
+  if (input_mode_menu_) input_mode_menu_->Refresh();
   return S_OK;
 }
 
@@ -780,13 +912,13 @@ HRESULT TextService::UninitThreadMgrSink() {
 }
 
 // キー入力。
-STDMETHODIMP TextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPARAM, BOOL* pfEaten) {
+STDMETHODIMP TextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPARAM flags, BOOL* pfEaten) {
   g_diagnostics.test_key_down.fetch_add(1);
   if (!pfEaten) return E_POINTER;
   *pfEaten = FALSE;
   try {
     BOOL eaten = FALSE;
-    HRESULT hr = HandleKey(pic, wParam, &eaten, true);
+    HRESULT hr = HandleKey(pic, wParam, flags, &eaten, true);
     if (SUCCEEDED(hr)) *pfEaten = eaten;
     return hr;
   } catch (...) {
@@ -795,13 +927,13 @@ STDMETHODIMP TextService::OnTestKeyDown(ITfContext* pic, WPARAM wParam, LPARAM, 
   }
 }
 
-STDMETHODIMP TextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM, BOOL* pfEaten) {
+STDMETHODIMP TextService::OnKeyDown(ITfContext* pic, WPARAM wParam, LPARAM flags, BOOL* pfEaten) {
   g_diagnostics.key_down.fetch_add(1);
   if (!pfEaten) return E_POINTER;
   *pfEaten = FALSE;
   try {
     BOOL eaten = FALSE;
-    HRESULT hr = HandleKey(pic, wParam, &eaten, false);
+    HRESULT hr = HandleKey(pic, wParam, flags, &eaten, false);
     if (SUCCEEDED(hr)) *pfEaten = eaten;
     TipLog("OnKeyDown vk=0x%lx hr=0x%08lx eaten=%d", static_cast<unsigned long>(wParam), hr,
            eaten ? 1 : 0);
@@ -822,8 +954,18 @@ STDMETHODIMP TextService::OnKeyUp(ITfContext*, WPARAM, LPARAM, BOOL* pfEaten) {
   return S_OK;
 }
 
-STDMETHODIMP TextService::OnPreservedKey(ITfContext*, REFGUID, BOOL* pfEaten) {
-  if (pfEaten) *pfEaten = FALSE;
+STDMETHODIMP TextService::OnPreservedKey(ITfContext* context, REFGUID id, BOOL* eaten) {
+  if (!eaten) return E_POINTER;
+  *eaten = FALSE;
+  if (id != kToggleKeyboardMode || !registered_shortcuts_ || !foreground_ || restricted_ || !context ||
+      GetPropW(GetFocus(), L"Yomitsugu.ModeShortcutCapture.1"))
+    return S_OK;
+  TF_STATUS status{};
+  if (CompartmentEnabled(context, GUID_COMPARTMENT_KEYBOARD_DISABLED, false) ||
+      CompartmentEnabled(context, GUID_COMPARTMENT_EMPTYCONTEXT, false) ||
+      (SUCCEEDED(context->GetStatus(&status)) && (status.dwDynamicFlags & TS_SD_READONLY))) return S_OK;
+  if ((GetKeyState(VK_RMENU) & 0x8000) && (GetKeyState(VK_CONTROL) & 0x8000)) return S_OK;
+  *eaten = SetKeyboardOpen(!KeyboardOpen()) == S_OK;
   return S_OK;
 }
 
@@ -839,16 +981,36 @@ STDMETHODIMP TextService::OnSetFocus(BOOL fForeground) {
   return S_OK;
 }
 
-HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, BOOL* eaten, bool test) {
+HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, LPARAM flags, BOOL* eaten, bool test) {
   if (!eaten) return E_POINTER;
   *eaten = FALSE;
   if (!pic) { g_diagnostics.gated_no_context.fetch_add(1); return S_OK; }
   if (restricted_) { g_diagnostics.gated_restricted.fetch_add(1); return S_OK; }
   if (!foreground_) { g_diagnostics.gated_background.fetch_add(1); return S_OK; }
-  if ((GetKeyState(VK_CONTROL) & 0x8000) || (GetKeyState(VK_MENU) & 0x8000) ||
-      (GetKeyState(VK_LWIN) & 0x8000) || (GetKeyState(VK_RWIN) & 0x8000)) return S_OK;
-  if (!CompartmentEnabled(thread_mgr_, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, true) ||
-      CompartmentEnabled(pic, GUID_COMPARTMENT_KEYBOARD_DISABLED, false) ||
+  if ((GetKeyState(VK_LWIN) & 0x8000) || (GetKeyState(VK_RWIN) & 0x8000)) return S_OK;
+  const bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+  const UINT modifiers = (shift ? TF_MOD_SHIFT : 0) |
+      ((GetKeyState(VK_CONTROL) & 0x8000) ? TF_MOD_CONTROL : 0) |
+      ((GetKeyState(VK_MENU) & 0x8000) ? TF_MOD_ALT : 0);
+  unsigned binding = 0;
+  while (binding < mode_key_count_ &&
+         (mode_keys_[binding].uVKey != key ||
+          (mode_keys_[binding].uModifiers & ~TF_MOD_ON_KEYUP) != modifiers)) ++binding;
+  // On layouts with AltGr, right Alt plus Ctrl generates ordinary text.
+  if ((modifiers & (TF_MOD_ALT | TF_MOD_CONTROL)) == (TF_MOD_ALT | TF_MOD_CONTROL) &&
+      (GetKeyState(VK_RMENU) & 0x8000)) return S_OK;
+  const bool toggle = binding < mode_key_count_;
+  const bool dedicated = input_preferences_.mode_shortcut.mode == ime::ShortcutMode::Default &&
+      !modifiers && (key == VK_IME_ON || key == VK_IME_OFF);
+  const bool mode_key = keyboard_open_ && (toggle || dedicated);
+  if (!mode_key && (modifiers & (TF_MOD_CONTROL | TF_MOD_ALT))) return S_OK;
+  if (!mode_key && key == VK_TAB && !input_preferences_.tab_candidates) return S_OK;
+  if (!mode_key && !KeyboardOpen()) {
+    g_diagnostics.gated_compartment.fetch_add(1);
+    if (!test) cand_window_.Hide();
+    return S_OK;
+  }
+  if (CompartmentEnabled(pic, GUID_COMPARTMENT_KEYBOARD_DISABLED, false) ||
       CompartmentEnabled(pic, GUID_COMPARTMENT_EMPTYCONTEXT, false)) {
     g_diagnostics.gated_compartment.fetch_add(1);
     if (!test) cand_window_.Hide();
@@ -860,13 +1022,25 @@ HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, BOOL* eaten, bool te
     if (!test) cand_window_.Hide();
     return S_OK;
   }
+  if (mode_key) {
+    if (GetPropW(GetFocus(), L"Yomitsugu.ModeShortcutCapture.1")) return S_OK;
+    // Windows dispatches a registered chord on key-up. Consume its down
+    // without toggling twice. Some hosts send only ordinary key callbacks.
+    if (toggle && (registered_shortcuts_ & (1u << binding))) {
+      *eaten = TRUE;
+      return S_OK;
+    }
+    // Bit 30 indicates autorepeat. Holding 半角/全角 must switch only once.
+    if (test || (flags & (1L << 30))) *eaten = TRUE;
+    else *eaten = SetKeyboardOpen(toggle ? !KeyboardOpen() : key == VK_IME_ON) == S_OK;
+    return S_OK;
+  }
   bool composing = context_ == pic && session_.composing();
   bool converting = composing && session_.is_converting();
-  bool shift = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
   bool operation = key == VK_BACK || key == VK_DELETE || key == VK_ESCAPE || key == VK_RETURN ||
-      key == VK_SPACE || key == VK_LEFT || key == VK_RIGHT || key == VK_HOME || key == VK_END ||
+      key == VK_SPACE || key == VK_TAB || key == VK_LEFT || key == VK_RIGHT || key == VK_HOME || key == VK_END ||
       (key >= VK_F6 && key <= VK_F10) || key == VK_CONVERT;
-  bool candidate_key = converting && (key == VK_UP || key == VK_DOWN || key == VK_TAB ||
+  bool candidate_key = converting && (key == VK_UP || key == VK_DOWN ||
       key == VK_PRIOR || key == VK_NEXT || (!shift && key >= '1' && key <= '9'));
   std::string append;
   if (!operation && !candidate_key) {
@@ -925,12 +1099,13 @@ HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, BOOL* eaten, bool te
     finish = true;
   }
   else if (key == VK_SPACE || key == VK_CONVERT) { if (shift) next.PressShiftSpace(); else next.PressSpace(); }
+  else if (key == VK_TAB) next.PressTab(shift);
   else if (key == VK_LEFT) next.PressLeft();
   else if (key == VK_RIGHT) next.PressRight();
   else if (key == VK_HOME) next.PressHome();
   else if (key == VK_END) next.PressEnd();
-  else if (key == VK_UP || key == VK_PRIOR || (key == VK_TAB && shift)) next.PressUp();
-  else if (key == VK_DOWN || key == VK_NEXT || key == VK_TAB) next.PressDown();
+  else if (key == VK_UP || key == VK_PRIOR) next.PressUp();
+  else if (key == VK_DOWN || key == VK_NEXT) next.PressDown();
   else if (key >= '1' && key <= '9') next.SelectCandidate(static_cast<int>(key - '1'));
   auto text = next.visible_text();
   if (finish) next.PressEnter();

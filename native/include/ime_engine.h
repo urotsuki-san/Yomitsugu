@@ -83,6 +83,7 @@ class Session {
   void DeleteForward();
   SpaceAction QuerySpace() const;
   void PressSpace();
+  void PressTab(bool reverse);
   void PressShiftSpace();
   void PressEnter();
   void PressEscape();
@@ -126,6 +127,7 @@ class Session {
   void NextCandidate();
   void PrevCandidate();
   void RebuildSegments();
+  void StartCandidateSelection();
   static void PushCapped(std::vector<std::string>& log, std::string value);
 
   int revision_ = 0;

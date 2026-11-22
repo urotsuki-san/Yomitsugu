@@ -2080,16 +2080,30 @@ void Session::PressSpace() {
     return;
   }
   if (a == SpaceAction::kStartConversion) {
-    phase_ = "end_of_phrase";
-    BumpInteraction();
-    manual_lock_ = true;
-    editing_ = false;
-    awaiting_candidates_ = deferred_decoding_;
-    selected_index_ = 0;
-    RebuildSegments();
+    StartCandidateSelection();
     return;
   }
   Type(" ");
+}
+
+void Session::StartCandidateSelection() {
+  const bool complete = phase_ == "end_of_phrase" && !editing_ && candidates_ready();
+  phase_ = "end_of_phrase";
+  BumpInteraction();
+  manual_lock_ = true;
+  editing_ = false;
+  awaiting_candidates_ = deferred_decoding_ && !complete;
+  selected_index_ = 0;
+  RebuildSegments();
+}
+
+void Session::PressTab(bool reverse) {
+  if (!composing()) return;
+  if (!is_converting()) StartCandidateSelection();
+  else if (!awaiting_candidates_) {
+    if (reverse) PressUp();
+    else PressDown();
+  }
 }
 
 void Session::PressShiftSpace() {

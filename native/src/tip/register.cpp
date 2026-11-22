@@ -76,7 +76,7 @@ HRESULT RegisterTextService() {
   if (SUCCEEDED(hrCat) && catmgr) {
     if (SUCCEEDED(hr)) hr = catmgr->RegisterCategory(kTextServiceClsid, GUID_TFCAT_TIP_KEYBOARD, kTextServiceClsid);
     if (SUCCEEDED(hr)) hr = catmgr->RegisterCategory(kTextServiceClsid, GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER, kTextServiceClsid);
-    // 対応しているTSFカテゴリだけを登録する。
+    if (SUCCEEDED(hr)) hr = catmgr->RegisterCategory(kTextServiceClsid, GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT, kTextServiceClsid);
     catmgr->Release();
   } else if (FAILED(hrCat)) {
     hr = hrCat;
@@ -110,6 +110,7 @@ HRESULT UnregisterTextService() {
       catmgr) {
     catmgr->UnregisterCategory(kTextServiceClsid, GUID_TFCAT_TIP_KEYBOARD, kTextServiceClsid);
     catmgr->UnregisterCategory(kTextServiceClsid, GUID_TFCAT_DISPLAYATTRIBUTEPROVIDER, kTextServiceClsid);
+    catmgr->UnregisterCategory(kTextServiceClsid, GUID_TFCAT_TIPCAP_SYSTRAYSUPPORT, kTextServiceClsid);
     catmgr->UnregisterCategory(kTextServiceClsid, GUID_TFCAT_TIPCAP_UIELEMENTENABLED, kTextServiceClsid);
     catmgr->UnregisterCategory(kTextServiceClsid, GUID_TFCAT_TIPCAP_IMMERSIVESUPPORT, kTextServiceClsid);
     catmgr->Release();

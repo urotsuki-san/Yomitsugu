@@ -7,6 +7,9 @@
 #include <string>
 #include <memory>
 #include <optional>
+#include <array>
+#include <filesystem>
+#include "mode_shortcut.h"
 
 #include "ime_engine.h"
 #include "engine_channel.h"
@@ -62,6 +65,7 @@ class TextService : public ITfTextInputProcessorEx,
                     public ITfKeyEventSink,
                     public ITfThreadMgrEventSink,
                     public ITfCompositionSink,
+                    public ITfCompartmentEventSink,
                     public ITfDisplayAttributeProvider {
  public:
   TextService();
@@ -108,6 +112,10 @@ class TextService : public ITfTextInputProcessorEx,
   HRESULT ApplyState(TfEditCookie ec, ITfContext* pic, const ime::DecodeInput& expected,
                     const ime::Session& next, const std::string& text, bool finish, bool cancel, uint64_t retry_token=0);
   void PollEngine();
+  void ReloadInputPreferences();
+  STDMETHODIMP OnChange(REFGUID compartment) override;
+  bool KeyboardOpen() const;
+  HRESULT SetKeyboardOpen(bool open);
   void OnEngineReply(DWORD worker_pid, DWORD generation) {
     if (engine_channel_.AcceptReplyWake(worker_pid,generation)) PollEngine();
   }
@@ -121,9 +129,13 @@ class TextService : public ITfTextInputProcessorEx,
  private:
   friend struct TipStabilityTest;
   HRESULT ActivateInternal(ITfThreadMgr* ptim, TfClientId tid);
+  void RegisterModeShortcuts();
+  void UnregisterModeShortcuts();
+  void WatchKeyboardMode();
+  void UnwatchKeyboardMode();
   HRESULT InitThreadMgrSink();
   HRESULT UninitThreadMgrSink();
-  HRESULT HandleKey(ITfContext* pic, WPARAM wParam, BOOL* pfEaten, bool test_only);
+  HRESULT HandleKey(ITfContext* pic, WPARAM wParam, LPARAM key_flags, BOOL* pfEaten, bool test_only);
   HRESULT EndComposition(ITfContext* pic, bool commit);
   HRESULT RequestState(ITfContext* pic, const ime::Session& next, const std::string& text,
                        bool finish = false, bool cancel = false, bool async = false);
@@ -141,6 +153,13 @@ class TextService : public ITfTextInputProcessorEx,
   ITfThreadMgr* thread_mgr_ = nullptr;
   ITfLangBarItemMgr* lang_bar_mgr_ = nullptr;
   InputModeMenu* input_mode_menu_ = nullptr;
+  ITfCompartment* keyboard_open_ = nullptr;
+  DWORD mode_cookie_ = TF_INVALID_COOKIE;
+  std::filesystem::path preferences_directory_;
+  ime::InputPreferences input_preferences_{};
+  std::array<TF_PRESERVEDKEY, 7> mode_keys_{};
+  unsigned mode_key_count_ = 0;
+  unsigned registered_shortcuts_ = 0;
   TfClientId client_id_ = TF_CLIENTID_NULL;
   DWORD thread_key_sink_cookie_ = TF_INVALID_COOKIE;
   DWORD thread_mgr_sink_cookie_ = TF_INVALID_COOKIE;

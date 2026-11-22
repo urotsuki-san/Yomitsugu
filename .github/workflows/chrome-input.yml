@@ -1,0 +1,29 @@
+name: Chrome 日本語入力
+on:
+  push:
+    branches: [qa/windows-chrome-input]
+permissions:
+  contents: read
+jobs:
+  chrome:
+    runs-on: windows-2025
+    timeout-minutes: 16
+    steps:
+      - uses: actions/checkout@v4
+      - name: 入力サービスと設定をビルド
+        shell: pwsh
+        run: |
+          cmake -S native -B build -A x64
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+          cmake --build build --config Release --target ime_mixed_tip ime_settings chrome_select_profile --parallel 4
+          if ($LASTEXITCODE) { exit $LASTEXITCODE }
+      - name: 公開版のモデルで Chrome のキー入力を検証
+        shell: pwsh
+        run: ./scripts/ci/chrome/run.ps1
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: chrome-input-result
+          path: audit/chrome
+          if-no-files-found: warn
+          retention-days: 7

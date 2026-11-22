@@ -1,6 +1,8 @@
 #include "learning_store.h"
+#include "mode_shortcut.h"
 #include "alternate_n.h"
 #include <windows.h>
+#include <ime.h>
 #include <algorithm>
 #include <cctype>
 #include <cstring>
@@ -84,7 +86,9 @@ bool ReplaceSnapshot(const std::filesystem::path& temporary, const std::filesyst
   CloseHandle(file);
   return saved;
 }
-bool WriteJson(const std::filesystem::path& path, const json& data) {
+bool WriteJson(const std::filesystem::path& path, const json& data, size_t maximum = 0) {
+  const auto content = data.dump();
+  if (maximum && content.size() >= maximum) return false;
   std::error_code error;
   std::filesystem::create_directories(path.parent_path(), error);
   if (error) return false;
@@ -93,7 +97,7 @@ bool WriteJson(const std::filesystem::path& path, const json& data) {
   {
     std::ofstream stream(temporary, std::ios::binary | std::ios::trunc);
     if (!stream) return false;
-    stream << data.dump() << '\n'; stream.flush();
+    stream << content << '\n'; stream.flush();
     if (!stream) { stream.close(); std::filesystem::remove(temporary, error); return false; }
   }
   const bool saved = ReplaceSnapshot(temporary, path);
@@ -162,6 +166,70 @@ class JsonSnapshot {
 }
 LearningStore::LearningStore(std::filesystem::path directory)
     : directory_(std::move(directory)), history_(directory_ / L"learning.json"), settings_(directory_ / L"settings.json") {}
+bool IsAllowedModeShortcut(UINT key, UINT modifiers) {
+  if (modifiers & ~(MOD_CONTROL | MOD_ALT | MOD_SHIFT)) return false;
+  switch (key) {
+    case VK_KANJI: case VK_KANA: case VK_CONVERT: case VK_NONCONVERT:
+    case VK_IME_ON: case VK_IME_OFF:
+    case VK_DBE_ALPHANUMERIC: case VK_DBE_KATAKANA: case VK_DBE_HIRAGANA:
+    case VK_DBE_SBCSCHAR: case VK_DBE_DBCSCHAR: case VK_DBE_ROMAN: case VK_DBE_NOROMAN:
+      return true;
+    case VK_CAPITAL: return modifiers != 0;
+  }
+  // Windows shell chords, navigation, modifiers alone and unmodified text never qualify.
+  if (key >= VK_F1 && key <= VK_F24) {
+    return key != VK_F12 && !(key == VK_F4 && (modifiers & (MOD_ALT | MOD_CONTROL)));
+  }
+  if (key == VK_SPACE) return (modifiers & MOD_CONTROL) && !(modifiers & MOD_ALT);
+  const bool character = (key >= 'A' && key <= 'Z') || (key >= '0' && key <= '9') ||
+      (key >= VK_OEM_1 && key <= VK_OEM_3) || (key >= VK_OEM_4 && key <= VK_OEM_8) ||
+      key == VK_OEM_102;
+  return character && (modifiers & (MOD_ALT | MOD_CONTROL));
+}
+InputPreferences ReadInputPreferences(const std::filesystem::path& directory) {
+  InputPreferences result;
+  json settings;
+  if (!JsonSnapshot(directory / L"settings.json").Read(65536, settings) || !settings.is_object()) return result;
+  const auto tab = settings.find("tab_candidates");
+  if (tab != settings.end() && tab->is_boolean()) result.tab_candidates = tab->get<bool>();
+  const auto shortcut = settings.find("mode_shortcut");
+  if (shortcut == settings.end() || !shortcut->is_object()) return result;
+  const auto mode = shortcut->find("mode");
+  if (mode == shortcut->end()) return result;
+  if (*mode == "disabled") result.mode_shortcut.mode = ShortcutMode::Disabled;
+  if (*mode != "custom") return result;
+  const auto key = shortcut->find("virtual_key"), mods = shortcut->find("modifiers");
+  if (key == shortcut->end() || mods == shortcut->end() ||
+      !key->is_number_unsigned() || !mods->is_number_unsigned() || *key > 255 || *mods > 7) return result;
+  const auto vk = key->get<UINT>(), modifiers = mods->get<UINT>();
+  if (IsAllowedModeShortcut(vk, modifiers)) result.mode_shortcut = {ShortcutMode::Custom, vk, modifiers};
+  return result;
+}
+bool SaveInputPreferences(const std::filesystem::path& directory, const InputPreferences& before,
+                          const InputPreferences& after) {
+  const auto& old = before.mode_shortcut;
+  const auto& key = after.mode_shortcut;
+  if (key.mode == ShortcutMode::Custom && !IsAllowedModeShortcut(key.virtual_key, key.modifiers)) return false;
+  const bool key_changed = old.mode != key.mode || (key.mode == ShortcutMode::Custom &&
+      (old.virtual_key != key.virtual_key || old.modifiers != key.modifiers));
+  if (!key_changed && before.tab_candidates == after.tab_candidates) return true;
+  HistoryLock lock;
+  if (!lock) return false;
+  const auto path = directory / L"settings.json";
+  json settings;
+  {
+    JsonSnapshot latest(path);
+    if (latest.missing()) settings = {{"learning_enabled", true}};
+    else if (!latest.Read(65536, settings) || !settings.is_object()) return false;
+  }
+  if (key_changed) {
+    if (key.mode == ShortcutMode::Default) settings.erase("mode_shortcut");
+    else if (key.mode == ShortcutMode::Disabled) settings["mode_shortcut"] = {{"mode", "disabled"}};
+    else settings["mode_shortcut"] = {{"mode", "custom"}, {"virtual_key", key.virtual_key}, {"modifiers", key.modifiers}};
+  }
+  if (before.tab_candidates != after.tab_candidates) settings["tab_candidates"] = after.tab_candidates;
+  return WriteJson(path, settings, 65536);
+}
 bool LearningStore::enabled() const {
   JsonSnapshot snapshot(settings_);
   if (snapshot.missing()) return true;
@@ -202,7 +270,7 @@ bool LearningStore::SetModel(ConversionModel model) {
                                 model == ConversionModel::HybridFull ? "hybrid_full" :
                                 model == ConversionModel::HybridDictionaryVerify ? "hybrid_dictionary_verify" :
                                 model == ConversionModel::ExtendedSearch ? "extended" : "standard";
-  return WriteJson(settings_, settings);
+  return WriteJson(settings_, settings, 65536);
 }
 bool LearningStore::SetEnabled(bool enabled) {
   HistoryLock lock; if (!lock) return false;
@@ -210,7 +278,7 @@ bool LearningStore::SetEnabled(bool enabled) {
   if (!JsonSnapshot(settings_).Read(65536, settings)) return false;
   if (!settings.is_object()) settings = json::object();
   settings["learning_enabled"] = enabled;
-  return WriteJson(settings_, settings);
+  return WriteJson(settings_, settings, 65536);
 }
 std::string LearningStore::Key(const DecodeInput& input) {
   if (input.field != "prose" || input.raw_text.size() < 2 || input.raw_text.size() > 64) return {};

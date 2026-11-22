@@ -11,11 +11,15 @@ constexpr UINT kDictionary = 2;
 constexpr UINT kUpdate = 3;
 constexpr UINT kAbout = 4;
 constexpr UINT kAppUpdate = 5;
+constexpr UINT kJapanese = 6;
+constexpr UINT kDirect = 7;
 
-HRESULT Add(ITfMenu* menu, UINT id, const wchar_t* label) {
-  return menu->AddMenuItem(id, 0, nullptr, nullptr, label,
-                           static_cast<ULONG>(wcslen(label)), nullptr);
-}
+struct MenuEntry { UINT id; const wchar_t* text; };
+constexpr MenuEntry kEntries[] = {
+  {kJapanese, L"日本語入力（あ）"}, {kDirect, L"直接入力（A）"},
+  {kSettings, L"設定と辞書の管理..."}, {kDictionary, L"ユーザー辞書を開く..."},
+  {kUpdate, L"公開辞書を更新..."}, {kAppUpdate, L"アプリを更新..."}, {kAbout, L"バージョンと説明..."}
+};
 
 void LaunchSettings(const wchar_t* action) {
   wchar_t module[MAX_PATH]{};
@@ -27,7 +31,10 @@ void LaunchSettings(const wchar_t* action) {
 }
 }  // namespace
 
-InputModeMenu::InputModeMenu() { ModuleAddRef(); }
+InputModeMenu::InputModeMenu(TextService& service) : service_(&service) { ModuleAddRef(); }
+void InputModeMenu::Refresh() {
+  if (sink_) sink_->OnUpdate(TF_LBI_BTNALL);
+}
 InputModeMenu::~InputModeMenu() {
   if (sink_) sink_->Release();
   ModuleRelease();
@@ -53,7 +60,7 @@ STDMETHODIMP InputModeMenu::GetInfo(TF_LANGBARITEMINFO* info) {
   *info = {};
   info->clsidService = kTextServiceClsid;
   info->guidItem = GUID_LBI_INPUTMODE;
-  info->dwStyle = TF_LBI_STYLE_BTN_MENU;
+  info->dwStyle = TF_LBI_STYLE_BTN_BUTTON | TF_LBI_STYLE_BTN_MENU | TF_LBI_STYLE_SHOWNINTRAY;
   StringCchCopyW(info->szDescription, TF_LBI_DESC_MAXLEN, L"Yomitsugu Preview");
   return S_OK;
 }
@@ -65,21 +72,42 @@ STDMETHODIMP InputModeMenu::GetStatus(DWORD* status) {
 STDMETHODIMP InputModeMenu::Show(BOOL) { return S_OK; }
 STDMETHODIMP InputModeMenu::GetTooltipString(BSTR* tooltip) {
   if (!tooltip) return E_POINTER;
-  *tooltip = SysAllocString(L"Yomitsugu Preview — 設定と辞書");
+  *tooltip = nullptr;
+  if (!service_) return TF_E_DISCONNECTED;
+  *tooltip = SysAllocString(service_->KeyboardOpen() ? L"よみつぐ — 日本語入力" : L"よみつぐ — 直接入力");
   return *tooltip ? S_OK : E_OUTOFMEMORY;
 }
-STDMETHODIMP InputModeMenu::OnClick(TfLBIClick, POINT, const RECT*) { return S_OK; }
+STDMETHODIMP InputModeMenu::OnClick(TfLBIClick click, POINT pt, const RECT*) {
+  if (!service_) return TF_E_DISCONNECTED;
+  if (click == TF_LBI_CLK_LEFT) return service_->SetKeyboardOpen(!service_->KeyboardOpen());
+  if (click != TF_LBI_CLK_RIGHT) return S_OK;
+  HMENU menu = CreatePopupMenu();
+  if (!menu) return E_FAIL;
+  const UINT current = service_->KeyboardOpen() ? kJapanese : kDirect;
+  for (const auto& entry : kEntries)
+    AppendMenuW(menu, MF_STRING | (entry.id == current ? MF_CHECKED : 0), entry.id, entry.text);
+  const UINT id = TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
+                                   pt.x, pt.y, GetActiveWindow(), nullptr);
+  DestroyMenu(menu);
+  return id ? OnMenuSelect(id) : S_OK;
+}
+
 STDMETHODIMP InputModeMenu::InitMenu(ITfMenu* menu) {
   if (!menu) return E_POINTER;
-  HRESULT hr = Add(menu, kSettings, L"設定と辞書の管理...");
-  if (SUCCEEDED(hr)) hr = Add(menu, kDictionary, L"ユーザー辞書を開く...");
-  if (SUCCEEDED(hr)) hr = Add(menu, kUpdate, L"公開辞書を更新...");
-  if (SUCCEEDED(hr)) hr = Add(menu, kAppUpdate, L"アプリを更新...");
-  if (SUCCEEDED(hr)) hr = Add(menu, kAbout, L"バージョンと説明...");
-  return hr;
+  if (!service_) return TF_E_DISCONNECTED;
+  const UINT current = service_->KeyboardOpen() ? kJapanese : kDirect;
+  for (const auto& entry : kEntries) {
+    HRESULT hr = menu->AddMenuItem(entry.id, entry.id == current ? TF_LBMENUF_CHECKED : 0, nullptr,
+                                   nullptr, entry.text, static_cast<ULONG>(wcslen(entry.text)), nullptr);
+    if (FAILED(hr)) return hr;
+  }
+  return S_OK;
 }
 STDMETHODIMP InputModeMenu::OnMenuSelect(UINT id) {
+  if (!service_) return TF_E_DISCONNECTED;
   switch (id) {
+    case kJapanese: return service_->SetKeyboardOpen(true);
+    case kDirect: return service_->SetKeyboardOpen(false);
     case kSettings: LaunchSettings(L""); break;
     case kDictionary: LaunchSettings(L"--dictionary"); break;
     case kUpdate: LaunchSettings(L"--update"); break;
@@ -92,6 +120,7 @@ STDMETHODIMP InputModeMenu::OnMenuSelect(UINT id) {
 STDMETHODIMP InputModeMenu::GetIcon(HICON* icon) {
   if (!icon) return E_POINTER;
   *icon = nullptr;
+  if (!service_) return TF_E_DISCONNECTED;
   HDC screen = GetDC(nullptr);
   if (!screen) return E_FAIL;
   HDC memory = CreateCompatibleDC(screen);
@@ -107,9 +136,13 @@ STDMETHODIMP InputModeMenu::GetIcon(HICON* icon) {
     auto old_font = font ? SelectObject(memory, font) : nullptr;
     SetBkMode(memory, TRANSPARENT);
     SetTextColor(memory, RGB(20, 20, 20));
-    DrawTextW(memory, L"あ", 1, &area, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    DrawTextW(memory, service_->KeyboardOpen() ? L"あ" : L"A", 1, &area, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
     if (old_font) SelectObject(memory, old_font);
     if (font) DeleteObject(font);
+    SelectObject(memory, previous);
+    // An all-black AND mask keeps the painted icon opaque.
+    previous = SelectObject(memory, mask);
+    PatBlt(memory, 0, 0, 24, 24, BLACKNESS);
     SelectObject(memory, previous);
     ICONINFO info{}; info.fIcon = TRUE; info.hbmColor = color; info.hbmMask = mask;
     *icon = CreateIconIndirect(&info);
@@ -122,7 +155,9 @@ STDMETHODIMP InputModeMenu::GetIcon(HICON* icon) {
 }
 STDMETHODIMP InputModeMenu::GetText(BSTR* text) {
   if (!text) return E_POINTER;
-  *text = SysAllocString(L"あ");
+  *text = nullptr;
+  if (!service_) return TF_E_DISCONNECTED;
+  *text = SysAllocString(service_->KeyboardOpen() ? L"あ" : L"A");
   return *text ? S_OK : E_OUTOFMEMORY;
 }
 STDMETHODIMP InputModeMenu::AdviseSink(REFIID iid, IUnknown* unknown, DWORD* cookie) {
