@@ -38,6 +38,23 @@ bool Valid(const std::u32string &s, const std::u32string &reading) {
          std::none_of(s.begin(), s.end(),
                       [](char32_t c) { return c < 32 || c == 127; });
 }
+// When both nouns vary across the leading candidates, the dictionary and
+// neural ranker can each miss a plausible combination. Consult compact search
+// for alternatives on short phrases, retaining the automatic first candidate.
+bool AmbiguousPossessive(const std::u32string& reading, const std::vector<ime::Candidate>& rows) {
+  if (reading.size() < 3 || reading.size() > 12 || reading.find(U'の', 1) >= reading.size() - 1) return false;
+  constexpr std::string_view particle = u8"の";
+  std::string_view firstLeft, firstRight;
+  for (size_t i = 0; i < std::min<size_t>(4, rows.size()); ++i) {
+    std::string_view text = rows[i].output_text;
+    const auto pos = text.find(particle);
+    if (pos == text.npos || pos == 0 || pos + particle.size() == text.size()) continue;
+    const auto left = text.substr(0, pos), right = text.substr(pos + particle.size());
+    if (firstLeft.empty()) { firstLeft = left; firstRight = right; }
+    else if (left != firstLeft && right != firstRight) return true;
+  }
+  return false;
+}
 void TraceMemory(const char *stage) {
   PROCESS_MEMORY_COUNTERS_EX counters{};
   counters.cb = sizeof(counters);
@@ -274,7 +291,7 @@ std::u32string HybridRouter::Reading(const ime::DecodeInput &q) const {
     return {};
   if (ime::ContainsLatinName(q.raw_text))
     return {};
-  const auto reading = iroha::Utf8ToUtf32(kana);
+  const auto reading = iroha::Utf8ToUtf32(ime::NormalizeDictionaryReading(kana));
   if (middle_dot && reading.size() < 8) return {};
   for (auto c : reading)
     if (!(c >= U'ぁ' && c <= U'ゖ') && c != U'ー' &&
@@ -614,9 +631,11 @@ void HybridRouter::Refine(const ime::DecodeInput& request, const std::u32string&
   CheckCancelled();
   if (mode_ == Mode::Verify && !reading.empty() && request.raw_text.find("nn")!=std::string::npos && !LowMemory())
     paths.AddAlternateSyllabicN(rows);
-  if (mode_ != Mode::Full || reading.empty() || request.phase == "typing" ||
+  if (reading.empty() || request.phase == "typing" ||
       request.dictionary_preview || request.shallow_search || request.candidate_limit < 2 ||
       rows.empty() || rows.front().is_raw || LowMemory()) return;
+
+  if (mode_ != Mode::Full && (mode_ != Mode::Verify || !AmbiguousPossessive(reading, rows))) return;
 
   // The expanded search inherits the automatic winner. Run the compact model
   // after releasing the verification contexts, then interleave its alternatives.
@@ -626,7 +645,7 @@ void HybridRouter::Refine(const ime::DecodeInput& request, const std::u32string&
   auto expanded = ime::Decode(request);
   // Automatic already explores punctuation boundaries. For other sentences,
   // reuse the same clause generator as a source of alternatives.
-  const size_t split = reading.find_first_of(U"、。！？・") == std::u32string::npos
+  const size_t split = mode_ == Mode::Full && reading.find_first_of(U"、。！？・") == std::u32string::npos
                            ? ClauseBoundary(reading) : 0;
   auto clauses = rows;
   if (split && !LowMemory()) AddClause(request, reading, clauses, split, false);

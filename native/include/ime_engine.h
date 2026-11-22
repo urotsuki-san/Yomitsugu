@@ -41,6 +41,7 @@ struct DecodeInput {
 std::vector<Candidate> Decode(const DecodeInput& input);
 void ApplyStandalonePreference(const DecodeInput& input, std::vector<Candidate>& candidates);
 std::string ConvertRomaji(const std::string& raw, bool* ok);
+const std::string& NormalizeDictionaryReading(const std::string& kana);
 bool ConvertRomajiChecked(const std::string& raw, std::string* kana);
 bool ContainsLatinName(const std::string& raw);
 bool SplitShortLatinSuffix(const std::string& raw, std::string* prefix, std::string* reading);

@@ -1236,8 +1236,7 @@ Seg BuildSeg(Kind kind, size_t s, size_t e, const std::string& raw, const Decode
   // 正しく読める入力は本辞書を優先し、補正候補はその後に置く。
   if (ScoreEnglish(text) <= 1.0) {
     // 挨拶で抜けた「ん」を補って本辞書へ渡す。元の入力も候補に残す。
-    auto lookup = kana;
-    if (lookup == u8"こにちは" || lookup == u8"こにちわ") lookup = u8"こんにちは";
+    const auto& lookup = NormalizeDictionaryReading(kana);
     auto azoo = AzookeyConvert(lookup, 24, input.left_context, input.right_context, input.phase != "typing", input.shallow_search);
     // 数字を含まない読みでは「3階」などの数字表記を一般語の後に置く。
     if (std::none_of(text.begin(), text.end(), [](unsigned char c) { return std::isdigit(c); })) {
@@ -1450,6 +1449,14 @@ bool SplitShortLatinSuffix(const std::string& raw, std::string* prefix, std::str
   if (!ConvertRomajiChecked(raw.substr(end), reading) || reading->size() > 24) return false;
   *prefix = std::move(literal);
   return true;
+}
+
+const std::string& NormalizeDictionaryReading(const std::string& kana) {
+  if (kana == u8"こにちは" || kana == u8"こにちわ") {
+    static const std::string corrected = u8"こんにちは";
+    return corrected;
+  }
+  return kana;
 }
 
 bool ConvertRomajiChecked(const std::string& raw, std::string* kana) {
