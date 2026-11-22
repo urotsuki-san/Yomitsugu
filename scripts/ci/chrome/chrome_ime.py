@@ -172,7 +172,7 @@ def observe_row(pid,index):
     except RuntimeError:
         return {"expected":index,"observed":candidate_list(pid,include_hidden=True),"visible":False}
 
-def enter_commit(events,field,marker):
+def enter_commit(events,field,marker,committed_text=None):
     # Only physical VK_RETURN is sent in this interval. A deferred TSF edit
     # can reach Blink after keyup; compositionend must still follow input.
     found = {}
@@ -189,7 +189,7 @@ def enter_commit(events,field,marker):
                 found.setdefault(kind, (index, event))
             elif kind == "input" and event["trusted"] and event["value"] == marker:
                 found[kind] = (index, event)
-            elif kind == "compositionend" and "input" in found and event["data"] == event["value"] == marker:
+            elif kind == "compositionend" and "input" in found and event["value"] == marker and event["data"] == (marker if committed_text is None else committed_text):
                 found[kind] = (index, event)
         if len(found) == 4:
             return [item for _, item in sorted(found.values())]
@@ -278,12 +278,14 @@ def test_taskbar(pid, snapshot, result_file):
             if (opening and "compositionstart" not in compositions) or (not opening and compositions):
                 raise RuntimeError("Unexpected composition state: " + name)
             if opening:
+                enter_start = len(snapshot()["events"])
                 tap(pid, 0x0d)
-                wait(lambda: any(e["field"] == "body" and e["type"] == "compositionend" and e["trusted"]
-                                 for e in snapshot()["events"][begin:]), "Kana was not committed", 3)
+                record["commit"] = wait(lambda: enter_commit(snapshot()["events"][enter_start:], "body", expected, suffix),
+                                        "Kana was not committed", 3)
         result["passed"] = True
     except Exception as error:
         result["error"] = str(error)
+        result["trace_tail"] = snapshot()["events"][-20:]
     return result
 
 def smoke(chrome,profile):

@@ -33,6 +33,10 @@ RestartApplications=no
 VersionInfoVersion=0.2.10.0
 VersionInfoDescription=Yomitsugu for Windows x64
 
+[Messages]
+FinishedLabel=[name] のインストールが完了しました。%n%n更新前から開いていた Chrome などのアプリは、書きかけの内容を保存してから終了し、開き直してください。
+FinishedLabelNoIcons=[name] のインストールが完了しました。%n%n更新前から開いていた Chrome などのアプリは、書きかけの内容を保存してから終了し、開き直してください。
+
 [Files]
 Source: "{#PackageRoot}\*"; DestDir: "{app}"; Flags: recursesubdirs createallsubdirs ignoreversion; Excludes: "ime_mixed_tip_v14.dll"
 Source: "{#PackageRoot}\ime_mixed_tip_v14.dll"; DestDir: "{app}"; Flags: ignoreversion regserver 64bit
