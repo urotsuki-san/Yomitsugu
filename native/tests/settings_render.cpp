@@ -23,15 +23,39 @@ int wmain(int argc, wchar_t** argv) {
     std::ofstream file(user_dir / L"public_dictionary.status.json");
     file << R"({"format_version":1,"result":"failed","checked_at_utc":"2026-09-26T02:00:00Z"})";
   }
+  ime::LearningStore fixture_settings(user_dir);
+  if (fixture_settings.model()!=ime::ConversionModel::Automatic) return 6;
+  const auto originalDesktop = GetThreadDesktop(GetCurrentThreadId());
+  const auto desktop = CreateDesktopW((L"YomitsuguSettingsTest-" + std::to_wstring(GetCurrentProcessId())).c_str(),
+                                      nullptr, nullptr, 0, GENERIC_ALL, nullptr);
+  if (!desktop || !SetThreadDesktop(desktop)) return 3;
   WNDCLASSW cls{}; cls.lpfnWndProc = WndProc; cls.hInstance = GetModuleHandleW(nullptr);
   cls.lpszClassName = L"YomitsuguHiddenRender";
   if (!RegisterClassW(&cls)) return 3;
-  // WS_VISIBLEとShowWindowを使わず、デスクトップの入力先を変えない。
-  window = CreateWindowW(cls.lpszClassName,L"",WS_POPUP,0,0,724,706,nullptr,nullptr,cls.hInstance,nullptr);
-  if (!window) return 4;
+  // Render native controls on a separate desktop without switching the input desktop.
+  window = CreateWindowW(cls.lpszClassName,L"",WS_POPUP|WS_VISIBLE,0,0,656,546,nullptr,nullptr,cls.hInstance,nullptr);
+  if (!window || SendMessageW(model_combo,CB_GETCURSEL,0,0)!=0) return 4;
+  RedrawWindow(window,nullptr,nullptr,RDW_INVALIDATE|RDW_ALLCHILDREN|RDW_UPDATENOW);
+  if (GetNextDlgTabItem(window,model_combo,FALSE)!=GetDlgItem(window,kOpen) ||
+      GetNextDlgTabItem(window,GetDlgItem(window,kOpen),TRUE)!=model_combo) return 7;
+  for (int i=0;i<static_cast<int>(std::size(models));++i) {
+    SendMessageW(model_combo,CB_SETCURSEL,i,0);
+    SendMessageW(window,WM_COMMAND,MAKEWPARAM(kModel,CBN_SELCHANGE),reinterpret_cast<LPARAM>(model_combo));
+    wchar_t detail[256]{}; GetWindowTextW(model_detail,detail,256);
+    if (fixture_settings.model()!=models[i].id || std::wstring(detail)!=models[i].detail) return 8;
+    RECT bounds{}; GetClientRect(model_detail,&bounds);
+    RECT measured=bounds;
+    HDC label=GetDC(model_detail);
+    const auto previous=SelectObject(label,body_font);
+    DrawTextW(label,detail,-1,&measured,DT_CALCRECT|DT_WORDBREAK|DT_NOPREFIX);
+    SelectObject(label,previous); ReleaseDC(model_detail,label);
+    if (measured.bottom>bounds.bottom || measured.right>bounds.right) return 9;
+  }
+  SendMessageW(model_combo,CB_SETCURSEL,0,0);
+  SendMessageW(window,WM_COMMAND,MAKEWPARAM(kModel,CBN_SELCHANGE),reinterpret_cast<LPARAM>(model_combo));
   HDC dc = CreateCompatibleDC(nullptr);
   BITMAPINFO info{}; info.bmiHeader.biSize=sizeof(BITMAPINFOHEADER);
-  info.bmiHeader.biWidth=724; info.bmiHeader.biHeight=-706;
+  info.bmiHeader.biWidth=656; info.bmiHeader.biHeight=-546;
   info.bmiHeader.biPlanes=1; info.bmiHeader.biBitCount=32; info.bmiHeader.biCompression=BI_RGB;
   void* pixels = nullptr;
   HBITMAP bitmap=CreateDIBSection(dc,&info,DIB_RGB_COLORS,&pixels,nullptr,0);
@@ -45,21 +69,22 @@ int wmain(int argc, wchar_t** argv) {
     item.rcItem={0,0,rect.right-rect.left,rect.bottom-rect.top}; DrawAction(&item);
   }
   SetViewportOrgEx(dc,0,0,nullptr);
-  for (int id : {kLearning,kClearLearning}) {
-    HWND child=GetDlgItem(window,id); RECT rect{}; GetWindowRect(child,&rect);
+  for (HWND child : {model_label, model_combo, model_detail, learning_checkbox, GetDlgItem(window,kClearLearning)}) {
+    RECT rect{}; GetWindowRect(child,&rect);
     MapWindowPoints(nullptr,window,reinterpret_cast<POINT*>(&rect),2);
     SetViewportOrgEx(dc,rect.left,rect.top,nullptr);
-    SendMessageW(child,WM_PRINT,reinterpret_cast<WPARAM>(dc),PRF_CLIENT|PRF_ERASEBKGND);
+    SendMessageW(child,WM_PRINT,reinterpret_cast<WPARAM>(dc),PRF_CLIENT|PRF_CHILDREN|PRF_NONCLIENT|PRF_ERASEBKGND);
   }
   GdiFlush();
   BITMAPFILEHEADER header{}; header.bfType=0x4d42;
   header.bfOffBits=sizeof(header)+sizeof(BITMAPINFOHEADER);
-  header.bfSize=header.bfOffBits+724*706*4;
+  header.bfSize=header.bfOffBits+656*546*4;
   std::ofstream file(output,std::ios::binary);
   file.write(reinterpret_cast<char*>(&header),sizeof(header));
   file.write(reinterpret_cast<char*>(&info.bmiHeader),sizeof(BITMAPINFOHEADER));
-  file.write(static_cast<char*>(pixels),724*706*4); file.close();
+  file.write(static_cast<char*>(pixels),656*546*4); file.close();
   SelectObject(dc,previous); DeleteObject(bitmap); DeleteDC(dc); DestroyWindow(window);
+  SetThreadDesktop(originalDesktop); CloseDesktop(desktop);
   for(const auto& entry:std::filesystem::recursive_directory_iterator(fixture))
     if(entry.is_regular_file()) std::filesystem::remove(entry.path());
   std::filesystem::remove(fixture/L"profile"); std::filesystem::remove(fixture/L"engine"); std::filesystem::remove(fixture);

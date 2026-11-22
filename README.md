@@ -7,14 +7,14 @@
 <img src="docs/assets/readme/yomitsugu-showcase-hero-v2.png" alt="Yomitsugu のタイトルと、端末を持つキャラクター。" width="100%">
 
 <p>
-  <img alt="Version 0.2.10 preview" src="https://img.shields.io/badge/version-0.2.10%20preview-7c3aed?style=for-the-badge">
+  <img alt="Version 0.2.10 preview 2" src="https://img.shields.io/badge/version-0.2.10%20preview%202-7c3aed?style=for-the-badge">
   <img alt="Windows x64" src="https://img.shields.io/badge/platform-Windows%20x64-334155?style=for-the-badge">
   <img alt="Local conversion" src="https://img.shields.io/badge/conversion-local-0f766e?style=for-the-badge">
   <a href="https://github.com/urotsuki-san/Yomitsugu/actions/workflows/windows.yml"><img alt="Windows CI" src="https://img.shields.io/github/actions/workflow/status/urotsuki-san/Yomitsugu/windows.yml?branch=main&style=for-the-badge&label=CI"></a>
   <a href="LICENSE"><img alt="License: MIT for original code" src="https://img.shields.io/badge/code-MIT-0f766e?style=for-the-badge"></a>
 </p>
 
-**[Windows 版をダウンロード（0.2.10 Preview）](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.10-preview.1/Yomitsugu-0.2.10-preview-x64-setup.exe)**
+**[Windows 版をダウンロード（0.2.10 Preview 2）](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.10-preview.2/Yomitsugu-0.2.10-preview-x64-setup.exe)**
 
 **[動いているところ](#動いているところ)** · **[何ができるか](#何ができるか)** · **[アーキテクチャ](#アーキテクチャ)** · **[インストール](#インストール)** · **[現在の範囲](#現在の範囲)** · **[ライセンス](#ライセンス)**
 
@@ -31,6 +31,12 @@
 
 打ち続けると、入力中の文字列が日本語へ変わっていきます。英語を交えた文章も、そのまま入力できます。
 
+## 今回の変更
+
+初期設定を「自動最適化」にしました。ローマ字を打つたびに未確定の文字列が変わり、少し手を止めると、変換エンジンが文全体を読み直します。設定画面では従来の「軽量・詳細探索」も選べます。
+
+233文で候補を調べたところ、正解が上位3件に入ったのは194文でした。直前の開発版は181文です。第一候補の確定で正解したのはどちらも164文でした。[測定条件と結果](docs/benchmarks/hybrid-12.md)
+
 ## 何ができるか
 
 | 入力 | 変換例 |
@@ -42,7 +48,7 @@
 | `aninsuto-ru` | アンインストール |
 | `softwarewokoushinsuru` | softwareを更新する |
 | `ri-domi-wokousinnsitekudasaiGithubde` | READMEを更新してくださいGithubで |
-| `sannkai` | 散開（先頭候補） |
+| `GitHubwotsukau` | GitHubを使う |
 | `yajirushi` | → |
 | `ltu` / `a` / `.` | っ / あ / 。 |
 
@@ -57,18 +63,18 @@ flowchart LR
     A["Windows アプリ<br/>入力先"] -->|キー入力| B["Windows TSF / TIP<br/>ローマ字と候補の表示"]
     B -->|候補を表示| C["候補ウィンドウ"]
     B -->|非同期 IPC| D["専用エンジン<br/>ime_engine_host.exe"]
-    D --> E["AzooKey 辞書 / Zenzai モデル<br/>ローカル変換"]
+    D --> E["辞書・Jinen・iroha・Zenzai<br/>候補の生成と評価"]
     D --> F["公開辞書 / ユーザー辞書<br/>ローカル保存"]
     G["設定・通知領域"] -->|登録・更新| F
 ```
 
-入力先アプリでキーを受け取り、専用プロセスで変換します。辞書には AzooKey、候補の評価には Zenzai を使います。通信するのは辞書やアプリを更新するときです。[拡大・経路表示ができる詳細図](docs/architecture/yomitsugu.html) もあります（HTML をダウンロードして開いてください）。
+入力先アプリでキーを受け取り、専用プロセスで変換します。自動最適化では、辞書と Jinen の候補を照合し、判断の分かれる読みでは iroha などで候補を採点します。通信するのは辞書やアプリを更新するときです。[従来版の詳細図](docs/architecture/yomitsugu.html) もあります（HTML をダウンロードして開いてください）。
 
 ## インストール
 
 現在は**評価版**です。
 
-1. [Windows 用インストーラーをダウンロード](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.10-preview.1/Yomitsugu-0.2.10-preview-x64-setup.exe)します。
+1. [Windows 用インストーラーをダウンロード](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.10-preview.2/Yomitsugu-0.2.10-preview-x64-setup.exe)します。
 2. ダウンロードした `.exe` を実行し、画面の案内に従います。管理者権限が必要です。未署名のため、Windows が警告を表示する場合があります。
 3. インストール後、`Win` + `Space` で Yomitsugu を選びます。
 

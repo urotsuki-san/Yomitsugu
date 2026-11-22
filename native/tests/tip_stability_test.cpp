@@ -78,6 +78,8 @@ struct TipStabilityTest {
     HFONT font = window.font_;
     for (int i = 0; i < 100; ++i) window.Show(candidates, i % 3, {20, 20});
     Check(window.font_ == font, "font reused at unchanged DPI");
+    Check(window.poll_interval_ == 0, "idle window has no polling timer");
+    window.SetPollInterval(25);
     HWND poll = window.poll_window_;
     DestroyWindow(owner);
     Check(!window.hwnd() && !window.list_ && !window.font_, "owner destruction clears popup resources");
@@ -113,8 +115,68 @@ struct TipStabilityTest {
 
     FakeThreadManager manager; ITfThreadMgr* mgr = &manager; TfClientId client = 1;
     {
+      FakeContext context; TextService service;
+      Check(SUCCEEDED(service.Activate(mgr,client)),"activate for completed result awaiting its edit");
+      service.context_=&context; context.AddRef();
+      service.session_.Type("hashi"); service.session_.RefineCandidates();
+      const auto request=service.session_.decode_input();
+      ime::Candidate provisional,confirmed;
+      provisional.output_text=u8"端"; confirmed.output_text=u8"橋";
+      auto early=service.session_, ready=service.session_;
+      Check(early.ApplyPendingPreview(request,{provisional},1) && ready.ApplyCandidates(request,{confirmed}) &&
+            service.RequestState(&context,ready,ready.visible_text(),false,false,true)==TF_S_ASYNC &&
+            service.HasQueuedFinal(),"remember completed worker reply while document lock is deferred");
+      Check(service.ApplyState(1,&context,request,early,early.visible_text(),false,false)==S_FALSE,
+            "older provisional edit cannot paint after final result was received");
+      service.session_.set_context(u8"橋を", "");
+      Check(!service.HasQueuedFinal() && context.Flush()==S_FALSE,
+            "changed context discards queued commit result and pending document edit");
+      service.Deactivate();
+    }
+    {
+      FakeContext context;TextService service;
+      Check(SUCCEEDED(service.Activate(mgr,client)),"activate for queued preview ordering");
+      service.context_=&context;context.AddRef();
+      service.session_.Type("hashi");service.session_.RefineCandidates();
+      const auto request=service.session_.decode_input();
+      ime::Candidate older,newer;older.output_text=u8"端";newer.output_text=u8"橋";
+      auto early=service.session_;
+      Check(early.ApplyPendingPreview(request,{older},1) &&
+            service.RequestState(&context,early,early.visible_text(),false,false,true)==TF_S_ASYNC,
+            "queue earlier neural display");
+      Check(service.session_.ApplyPendingPreview(request,{newer},2) && context.Flush()==S_FALSE &&
+            service.session_.visible_text()==u8"橋","delayed TSF edit cannot replace newer intermediate");
+      Check(service.RequestState(&context,early,early.visible_text(),false,false,true)==TF_S_ASYNC &&
+            service.session_.ApplyCandidates(request,{newer}) && context.Flush()==S_FALSE &&
+            service.session_.candidates_ready(),"delayed TSF edit cannot undo final candidate readiness");
+      service.Deactivate();
+    }
+    {
       TextService service;
       Check(SUCCEEDED(service.Activate(mgr, client)), "activate service");
+      Check(!service.engine_channel_.running(), "activation does not launch inference");
+      {
+        FakeContext context;
+        service.context_ = &context; context.AddRef();
+        service.session_.Type("ka");
+        service.last_key_at_ = GetTickCount64();
+        service.preview_delay_ms_ = 125;
+        service.PollEngine();
+        Check(!service.engine_channel_.running(), "rapid keys keep local preview without launching a worker");
+        wchar_t exe[MAX_PATH]{}; GetModuleFileNameW(nullptr, exe, MAX_PATH);
+        Check(service.engine_channel_.Start(exe), "start isolated worker for scheduling tests");
+        service.last_key_at_ -= 300;
+        service.PollEngine();
+        Check(service.session_.decode_input().phase == "end_of_phrase" && service.submitted_revision_ == service.session_.revision(),
+              "quiet interval submits final-quality conversion");
+        service.session_.Reset();
+        service.last_key_at_ = GetTickCount64() - 61000;
+        const auto deadline = GetTickCount64() + 2000;
+        while (service.engine_channel_.running() && GetTickCount64() < deadline) { service.PollEngine(); Sleep(1); }
+        Check(!service.engine_channel_.running() && service.cand_window_.poll_interval_ == 0,
+              "idle service releases worker and stops timer");
+        service.context_->Release(); service.context_ = nullptr;
+      }
       service.session_.Type("nihongo"); service.caret_valid_ = true;
       service.cand_window_.Show(candidates, 0, {20, 20});
       service.OnSetFocus(static_cast<ITfDocumentMgr*>(nullptr), nullptr);

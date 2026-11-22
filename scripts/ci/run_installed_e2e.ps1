@@ -7,7 +7,7 @@ $taskInstallers=@(Get-ChildItem -LiteralPath (Join-Path $taskRoot 'audit/ci-inst
 if($taskInstallers.Count -ne 1){throw 'Expected one installer'}
 $taskSetup=$taskInstallers[0].FullName
 $taskHash=(Get-FileHash -LiteralPath $taskSetup -Algorithm SHA256).Hash.ToLowerInvariant()
-$taskInstallDir=Join-Path $env:ProgramFiles 'Yomitsugu/0.2.10-preview'
+$taskInstallDir=Join-Path $env:ProgramFiles 'Yomitsugu/0.2.10-hybrid.12'
 $taskDll=Join-Path $taskInstallDir 'ime_mixed_tip_v14.dll'
 $taskClsid='Registry::HKEY_CLASSES_ROOT\CLSID\{8F3A1C2E-4B5D-4E6F-8A9B-0C1D2E3F4A5B}\InProcServer32'
 $taskUpdater=Join-Path $taskRoot 'native/build/Release/app_update_test.exe'

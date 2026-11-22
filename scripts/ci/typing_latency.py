@@ -8,21 +8,22 @@ import time
 from context_quality import Engine
 
 
-def measure(host, output, measure_only=False):
+def measure(host, output, measure_only=False, dictionary_preview=False):
     engine = Engine(host)
     rows = []
     try:
-        engine.decode("a", phase="typing")
+        engine.decode("a", phase="typing", dictionary_preview=dictionary_preview)
         for text in ("nakagakara", "karanoyouki", "aninsuto-ru", "ri-domi-wokousinnsitekudasaiGithubde"):
             for size in range(1, len(text) + 1):
                 start = time.perf_counter()
-                candidates = engine.decode(text[:size], phase="typing")
+                candidates = engine.decode(text[:size], phase="typing", dictionary_preview=dictionary_preview)
                 rows.append(dict(raw=text[:size], ms=(time.perf_counter()-start)*1000,
                                  first=candidates[0] if candidates else ""))
         # 同じ読みでも文脈と入力段階が違えば、別の結果を取得する。
         first = engine.decode("nakagakara")
-        engine.decode("nakagakara", phase="typing")
+        engine.decode("nakagakara", phase="typing", dictionary_preview=dictionary_preview)
         repeated = engine.decode("nakagakara")
+        engine.decode("kiru", left="この紙を", phase="typing", dictionary_preview=True)
         paper = engine.decode("kiru", left="この紙を")
         clothes = engine.decode("kiru", left="新しい服を")
         repeated_paper = engine.decode("kiru", left="この紙を")
@@ -44,5 +45,6 @@ if __name__ == "__main__":
     parser.add_argument("host")
     parser.add_argument("output")
     parser.add_argument("--measure-only", action="store_true")
+    parser.add_argument("--dictionary-preview", action="store_true")
     args = parser.parse_args()
-    measure(args.host, args.output, args.measure_only)
+    measure(args.host, args.output, args.measure_only, args.dictionary_preview)

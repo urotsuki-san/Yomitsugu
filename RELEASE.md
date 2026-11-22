@@ -1,10 +1,10 @@
-# Yomitsugu 0.2.10 Preview
+# Yomitsugu 0.2.10-hybrid.12（Preview 2）
 
 ローマ字を打つそばから、日本語に変える Windows IME です。英語を交えた文章も、モードを切り替えずに入力できます。
 
 ## インストール
 
-1. [Windows x64用インストーラー](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.10-preview.1/Yomitsugu-0.2.10-preview-x64-setup.exe)をダウンロードします。
+1. [Windows x64用インストーラー](https://github.com/urotsuki-san/Yomitsugu/releases/download/v0.2.10-preview.2/Yomitsugu-0.2.10-preview-x64-setup.exe)をダウンロードします。
 2. ファイルを開き、画面の案内に従います。管理者権限が必要です。
 3. `Win` + `Space` で Yomitsugu を選びます。
 
@@ -64,11 +64,13 @@ Windowsの「設定 → アプリ → インストールされているアプリ
 
 ## この版の変更
 
-- インストール先で変換エンジンが終了する不具合を修正しました。
-- 入力直後にEnterを押した際、候補が届く前の文字列を確定する問題を修正しました。
-- 候補の学習、学習の切り替えと履歴の削除を追加しました。
-- 設定画面と通知領域のメニューにアプリの更新を追加しました。
-- 公開辞書の最終更新日時、最終確認日時、確認結果を表示します。
+初期設定を「自動最適化」にしました。ローマ字を打つたびに未確定の文字列が変わり、少し手を止めると、変換エンジンが文全体を読み直します。設定画面では従来の「軽量・詳細探索」も選べます。
+
+英字の名前に助詞を続けて入力できます。たとえば `GitHubwotsukau` は「GitHubを使う」になります。英字の大文字・小文字は入力したとおりに残します。候補一覧には、今選んでいる候補の番号と総数が出ます。
+
+候補がそろってから操作せずに60秒たつと、未確定の文と選択位置を保ったまま変換プロセスを終了します。Windowsからメモリ不足の通知を受けた場合は、この待ち時間を5秒に短縮します。
+
+候補の順位、表示までの時間、メモリ使用量は[233文での測定結果](https://github.com/urotsuki-san/Yomitsugu/blob/v0.2.10-preview.2/docs/benchmarks/hybrid-12.md)にまとめました。
 
 ## 対応範囲
 

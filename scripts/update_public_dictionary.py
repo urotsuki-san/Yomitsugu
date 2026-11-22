@@ -183,6 +183,10 @@ def main() -> None:
                + "".join(f"{reading}\t{word}\t{pos}\n" for reading, word, pos in rows)).encode("utf-8")
     if len(payload) > 32 * 1024 * 1024:
         raise ValueError("Generated dictionary exceeds engine limit")
+    if args.package_output:
+        from generate_bundled_index import generate
+        header = ROOT / "native/src/bundled_public_index.h"
+        atomic_write(header, generate(payload).encode("utf-8"))
     atomic_write(output, payload)
     metadata = {"format_version": 2, "source_urls": SOURCES, "source_sha256": {name: hashlib.sha256(data).hexdigest() for name, data in sources.items()},
                 "output_sha256": hashlib.sha256(payload).hexdigest(), **counts}

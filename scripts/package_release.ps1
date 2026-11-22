@@ -19,6 +19,8 @@ Copy-Item -LiteralPath (Join-Path $taskRoot 'THIRD_PARTY.md') -Destination $task
 Copy-Item -LiteralPath (Join-Path $taskRoot 'LICENSE') -Destination $taskPackage
 $taskNotices = Join-Path $taskPackage 'licenses'
 New-Item -ItemType Directory -Path $taskNotices | Out-Null
+foreach ($document in 'HYBRID.md','HYBRID-NOTICE.md') { Copy-Item -LiteralPath (Join-Path $taskRoot $document) -Destination $taskPackage }
+Get-ChildItem -LiteralPath (Join-Path $taskRoot 'licenses') -File | Copy-Item -Destination $taskNotices
 $taskLicenses = @{
     'myime-LICENSE'='upstream/myime/LICENSE';
     'azookey-converter-LICENSE'='upstream/myime/src/AzooKeyKanaKanjiConverter/LICENSE';
@@ -34,7 +36,7 @@ $taskLicenses = @{
 }
 foreach ($taskName in $taskLicenses.Keys) { Copy-Item -LiteralPath (Join-Path $taskRoot $taskLicenses[$taskName]) -Destination (Join-Path $taskNotices $taskName) }
 $taskManifest = [ordered]@{
-    version='0.2.10-preview'; architecture='x64'; public_release_ready=$false;
+    version='0.2.10-hybrid.12'; architecture='x64'; public_release_ready=$false;
     created_utc=(Get-Date).ToUniversalTime().ToString('o');
     upstream_myime='a8486eca5312556ff88fed7f1850a28843b67977';
     dictionary='4d418525b090cf49c219819d05a7e3cc2a4346eb';

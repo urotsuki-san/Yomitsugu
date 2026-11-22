@@ -1,4 +1,5 @@
 #include "tip.h"
+#include "alternate_n.h"
 #include "tip_diagnostics.h"
 #include "input_mode_menu.h"
 
@@ -57,9 +58,9 @@ class CompositionEndSession : public ITfEditSession {
 class StateEditSession : public ITfEditSession {
  public:
   StateEditSession(TextService* svc, ITfContext* pic, ime::DecodeInput expected,
-                   ime::Session next, std::string text, bool finish, bool cancel)
+                   ime::Session next, std::string text, bool finish, bool cancel, uint64_t token)
       : svc_(svc), pic_(pic), expected_(std::move(expected)), next_(std::move(next)),
-        text_(std::move(text)), finish_(finish), cancel_(cancel) { svc_->AddRef(); pic_->AddRef(); }
+        text_(std::move(text)), finish_(finish), cancel_(cancel), retry_token_(token) { svc_->AddRef(); pic_->AddRef(); }
   ~StateEditSession() { pic_->Release(); svc_->Release(); }
   STDMETHODIMP QueryInterface(REFIID id, void** out) override {
     if (!out) return E_POINTER;
@@ -71,14 +72,14 @@ class StateEditSession : public ITfEditSession {
   STDMETHODIMP_(ULONG) Release() override { auto r = InterlockedDecrement(&refs_); if (!r) delete this; return r; }
   STDMETHODIMP DoEditSession(TfEditCookie ec) override {
     HRESULT result = E_FAIL;
-    try { result = svc_->ApplyState(ec, pic_, expected_, next_, text_, finish_, cancel_); }
+    try { result = svc_->ApplyState(ec, pic_, expected_, next_, text_, finish_, cancel_, retry_token_); }
     catch (...) {}
-    if (finish_) svc_->FinishEditCompleted(expected_);
+    svc_->EditCompleted(expected_,finish_);
     return result;
   }
  private:
   LONG refs_ = 1; TextService* svc_; ITfContext* pic_;
-  ime::DecodeInput expected_; ime::Session next_; std::string text_; bool finish_, cancel_;
+  ime::DecodeInput expected_; ime::Session next_; std::string text_; bool finish_, cancel_; uint64_t retry_token_;
 };
 bool CompartmentEnabled(IUnknown* object, REFGUID id, bool default_value) {
   if (!object) return default_value;
@@ -133,13 +134,21 @@ HRESULT TextService::EditStart(TfEditCookie ec, ITfContext* pic) {
 
 HRESULT TextService::EditSetText(TfEditCookie ec, ITfContext* pic, const std::string& text,
                                const std::string& caret) {
+  const bool same_surface = composition_ && session_.visible_text() == text;
   HRESULT hr = EditStart(ec, pic);
   if (FAILED(hr)) return hr;
   ITfRange* range = nullptr;
   hr = composition_->GetRange(&range);
   if (FAILED(hr) || !range) return E_FAIL;
   auto wide = WFromUtf8(text);
-  hr = range->SetText(ec, 0, wide.c_str(), static_cast<LONG>(wide.size()));
+  // A streamed result or Enter can confirm the text already in the document.
+  // Read the active range under the same edit lock in case the app changed it.
+  wchar_t current[256];
+  ULONG copied = 0;
+  const bool matches = same_surface && !wide.empty() && wide.size() < std::size(current) &&
+      SUCCEEDED(range->GetText(ec, 0, current, static_cast<ULONG>(wide.size() + 1), &copied)) &&
+      copied == wide.size() && std::equal(wide.begin(), wide.end(), current);
+  if (!matches) hr = range->SetText(ec, 0, wide.c_str(), static_cast<LONG>(wide.size()));
   if (SUCCEEDED(hr)) {
     ITfProperty* prop = nullptr;
     if (SUCCEEDED(pic->GetProperty(GUID_PROP_ATTRIBUTE, &prop)) && prop) {
@@ -187,11 +196,16 @@ HRESULT TextService::EditEnd(TfEditCookie ec, ITfContext*, bool commit) {
 }
 
 HRESULT TextService::ApplyState(TfEditCookie ec, ITfContext* pic, const ime::DecodeInput& expected,
-                               const ime::Session& next, const std::string& text, bool finish, bool cancel) {
+                               const ime::Session& next, const std::string& text, bool finish, bool cancel, uint64_t retry_token) {
   const auto now = session_.decode_input();
   if (!activated_ || pic != context_ || now.revision != expected.revision ||
       now.context_generation != expected.context_generation ||
       now.interaction_generation != expected.interaction_generation) return S_FALSE;
+  if (!finish && !cancel && next.revision()==now.revision &&
+      next.interaction_generation()==now.interaction_generation &&
+      next.context_generation()==now.context_generation &&
+      !next.candidates_ready() && (session_.candidates_ready() || HasQueuedFinal() ||
+          session_.refinement_preview_sequence()>next.refinement_preview_sequence())) return S_FALSE;
   if ((!foreground_ || !document_focused_) && !finish && !cancel) return S_FALSE;
   TF_SELECTION selection{}; ULONG fetched = 0;
   std::string field = "prose";
@@ -221,17 +235,50 @@ HRESULT TextService::ApplyState(TfEditCookie ec, ITfContext* pic, const ime::Dec
     selection.range->Release();
     if (sensitive) return E_ACCESSDENIED;
   }
+  if (retry_token) {
+    if (!HasQueuedFinal() || queued_final_->retry_token!=retry_token) return S_FALSE;
+    // The application can replace its composition range (for example, on
+    // paste) while TSF withholds the lock. Compare under this edit's lock.
+    ITfRange* active=nullptr;
+    const auto before=WFromUtf8(session_.visible_text());
+    std::wstring actual(before.size()+1,L'\0');
+    ULONG count=0;
+    const bool current=composition_ && SUCCEEDED(composition_->GetRange(&active)) && active &&
+        SUCCEEDED(active->GetText(ec,0,actual.data(),static_cast<ULONG>(actual.size()),&count)) &&
+        count==before.size() && std::equal(before.begin(),before.end(),actual.begin());
+    if (active) active->Release();
+    if (!current) {
+      EditEnd(ec,pic,true); // Leave the application's replacement text intact.
+      ResetSessionState();
+      return S_FALSE;
+    }
+  }
   HRESULT hr = S_OK;
   if (!cancel) hr = EditSetText(ec, pic, text, finish ? text : next.caret_prefix());
   if (SUCCEEDED(hr) && (finish || cancel)) hr = EditEnd(ec, pic, !cancel);
   if (FAILED(hr)) return hr;
   const bool selected_conversion = session_.candidates_ready() && session_.selected_index() >= 0 &&
       session_.selected_index() < static_cast<int>(session_.candidates().size()) && !session_.candidates()[session_.selected_index()].is_raw;
-  if (finish && !cancel && session_.composing() && (next.last_commit_learnable() || selected_conversion)) {
+  if (finish && !cancel && session_.composing() && (next.last_commit_f10() || next.last_commit_learnable() || selected_conversion)) {
     auto learned = now; learned.field = field;
-    engine_channel_.Learn(learned, text, next.last_commit_explicit());
+    const auto& shown = session_.candidates();
+    const bool chose_alternative = next.last_commit_explicit() && session_.candidates_ready() && !shown.empty() &&
+        shown.front().output_text != text && std::any_of(shown.begin()+1,shown.end(),
+          [&](const auto& candidate){return !candidate.is_raw && candidate.output_text == text;});
+    const auto previous = chose_alternative ? shown.front().output_text : std::string{};
+    std::uint8_t alternate_n = 0;
+    if (chose_alternative && learned.raw_text.find("nn") != std::string::npos) {
+      const auto selected = std::find_if(shown.begin(), shown.end(), [&](const auto& c) {
+        return !c.is_raw && c.output_text == text;
+      });
+      std::string standard;
+      if (selected != shown.end() && ime::ConvertRomajiChecked(learned.raw_text, &standard))
+        alternate_n = ime::SyllabicNPosition(standard, selected->reading_text);
+    }
+    if (StartEngine()) engine_channel_.Learn(learned, text, next.last_commit_explicit(), next.last_commit_f10(), previous, alternate_n);
   }
   session_ = next;
+  if (session_.candidates_ready() || !HasQueuedFinal()) queued_final_.reset();
   if (finish || cancel) pending_commit_ = false;
   if (!finish && !cancel && composition_) {
     if (session_.decode_input().field != field) session_.set_field(field);
@@ -253,6 +300,7 @@ HRESULT TextService::ApplyState(TfEditCookie ec, ITfContext* pic, const ime::Dec
       session_.set_context(surrounding(true), surrounding(false)); range->Release();
     }
   }
+  if (engine_channel_.may_cancel()) engine_channel_.CancelObsolete(session_.decode_input());
   SyncCandidateWindow(pic);
   return S_OK;
 }
@@ -260,13 +308,45 @@ HRESULT TextService::ApplyState(TfEditCookie ec, ITfContext* pic, const ime::Dec
 HRESULT TextService::RequestState(ITfContext* pic, const ime::Session& next, const std::string& text,
                                  bool finish, bool cancel, bool async) {
   if (!pic) return E_INVALIDARG;
-  auto edit = new (std::nothrow) StateEditSession(this, pic, session_.decode_input(), next, text, finish, cancel);
+  const bool applying_final=async && !finish && !cancel && !next.typing() && !next.is_converting() &&
+      next.candidates_ready() && next.revision()==session_.revision() &&
+      next.context_generation()==session_.context_generation() &&
+      next.interaction_generation()==session_.interaction_generation();
+  const auto token=((applying_final || (finish && pending_commit_)) && HasQueuedFinal())
+      ? queued_final_->retry_token : 0;
+  auto edit = new (std::nothrow) StateEditSession(this, pic, session_.decode_input(), next, text, finish, cancel, token);
   if (!edit) return E_OUTOFMEMORY;
   HRESULT result = E_FAIL;
   HRESULT hr = pic->RequestEditSession(client_id_, edit,
       TF_ES_READWRITE | (async ? TF_ES_ASYNC : TF_ES_SYNC), &result);
   edit->Release();
-  return FAILED(hr) ? hr : result;
+  // TSF can hold the document lock after the worker has finished. Keep the
+  // confirmed first candidate available to Enter until this edit is applied.
+  const auto status=FAILED(hr) ? hr : result;
+  if (!finish && !cancel && async && next.candidates_ready() && !next.typing() &&
+      !next.is_converting() && !next.candidates().empty()) {
+    const auto make_final=[&] {
+      return QueuedFinal{next.revision(),next.context_generation(),next.interaction_generation(),
+                         next.candidates().front()};
+    };
+    if (status==TF_S_ASYNC) {
+      queued_final_.emplace(make_final());
+      queued_final_->retry_token=token;
+    } else if ((status==E_FAIL || status==TF_E_LOCKED || status==TF_E_SYNCHRONOUS) &&
+               pic==context_ && session_.revision()==next.revision() &&
+               session_.context_generation()==next.context_generation() &&
+               session_.interaction_generation()==next.interaction_generation() &&
+               !session_.candidates_ready() && !HasQueuedFinal()) {
+      // The host already supplied the complete alternatives. Retain them when
+      // the document temporarily refuses a second edit while granting a lock.
+      queued_final_.emplace(make_final());
+      queued_final_->retry_token=++received_preview_sequence_;
+      queued_final_->retry_candidates=next.candidates();
+      queued_final_->retry_at=GetTickCount64()+queued_final_->retry_delay;
+      cand_window_.SetPollInterval(queued_final_->retry_delay);
+    }
+  }
+  return status;
 }
 HRESULT TextService::EndComposition(ITfContext* pic, bool commit) {
   if (!composition_) return S_OK;
@@ -288,70 +368,185 @@ void TextService::DetachComposition() {
   edit->Release();
 }
 void TextService::ResetSessionState() {
-  session_.Reset(); caret_valid_ = false; cand_window_.Hide();
+  queued_final_.reset();
+  session_.Reset();
+  if (engine_channel_.may_cancel()) engine_channel_.CancelObsolete(session_.decode_input());
+  caret_valid_ = false; cand_window_.Hide();
+  first_preview_at_ = last_submit_at_ = 0;
   pending_commit_ = false; commit_edit_revision_ = -1;
 }
 
 bool TextService::StartEngine() {
-  if (!engine_channel_.running() && GetTickCount64() >= retry_engine_at_) {
+  const bool early=GetTickCount64()<retry_engine_at_;
+  if (!engine_channel_.running() && (!early || retry_after_early_exit_)) {
     wchar_t path[32768]{}; GetModuleFileNameW(g_hInstance, path, 32768);
     auto exe = std::filesystem::path(path).parent_path() / L"engine" / L"ime_engine_host.exe";
-    engine_channel_.Start(exe.wstring());
+#ifdef YOMITSUGU_LIVE_TEST
+    if (!test_worker_.empty()) engine_channel_.Start(test_worker_,test_profile_,cand_window_.poll_hwnd());
+    else
+#endif
+    engine_channel_.Start(exe.wstring(),{},cand_window_.poll_hwnd());
+    // A launched worker can exit before answering its first conversion.
+    // Allow one early restart; broken installations retain the normal backoff.
+    retry_after_early_exit_ = engine_channel_.running() && !early;
     retry_engine_at_ = GetTickCount64() + 10000;
     submitted_revision_ = -1;
   }
   return engine_channel_.running();
 }
+bool TextService::HasQueuedFinal() const {
+  return queued_final_ && queued_final_->revision==session_.revision() &&
+      queued_final_->context==session_.context_generation() &&
+      queued_final_->interaction==session_.interaction_generation();
+}
+
 bool TextService::BeginPendingCommit() {
-  if (!session_.composing() || !StartEngine()) return false;
+  if (!session_.composing()) return false;
   session_.RefineCandidates();
   if (session_.candidates_ready()) return false;
+  const bool received = HasQueuedFinal();
+  if (!received && !StartEngine()) return false;
   pending_commit_ = true; commit_deadline_ = GetTickCount64() + 3000;
-  engine_channel_.Submit(session_.decode_input());
+  if (!received) engine_channel_.Submit(session_.decode_input());
   return true;
 }
-void TextService::FinishEditCompleted(const ime::DecodeInput& expected) {
-  if (commit_edit_revision_ == expected.revision) commit_edit_revision_ = -1;
+void TextService::ForgetDeferredFinal() {
+  if (queued_final_ && queued_final_->retry_token) {
+    queued_final_.reset();
+    submitted_revision_=-1;
+  }
+}
+void TextService::EditCompleted(const ime::DecodeInput& expected,bool finish) {
+  if (finish && commit_edit_revision_==expected.revision) commit_edit_revision_=-1;
+  if (HasQueuedFinal() && !queued_final_->retry_candidates.empty() &&
+      expected.revision==session_.revision() && expected.context_generation==session_.context_generation() &&
+      expected.interaction_generation==session_.interaction_generation()) {
+    // The pending edit has been granted. Retry on the UI thread after this
+    // callback releases its lock, without waiting for a long backoff timer.
+    queued_final_->retry_at=0;
+    queued_final_->retry_delay=25;
+    cand_window_.SetPollInterval(25);
+  }
 }
 HRESULT TextService::FinishPendingCommit(bool async) {
   if (!pending_commit_ || !context_) return S_FALSE;
   if (async && commit_edit_revision_ == session_.revision()) return TF_S_ASYNC;
-  auto next = session_; auto text = next.visible_text(); next.PressEnter();
+  auto next = session_;
+  if (!next.candidates_ready() && HasQueuedFinal())
+    next.ApplyCandidates(next.decode_input(),{queued_final_->first});
+  auto text = next.visible_text(); next.PressEnter();
   commit_edit_revision_ = session_.revision();
   auto hr = RequestState(context_, next, text, true, false, async);
   if (hr != TF_S_ASYNC) commit_edit_revision_ = -1;
   return hr;
 }
 void TextService::PollEngine() {
-  if (!activated_ || !foreground_ || !document_focused_ || restricted_ || !context_) return;
+  if (!activated_ || !foreground_ || restricted_) return;
+  const auto now = GetTickCount64();
+  const auto quiet_ms = now - last_key_at_;
+  // The document owns the displayed text and candidates. A settled edit can
+  // release its worker without changing what Enter or a candidate click selects.
+  auto release_idle_worker = [&](bool composing) {
+    if (!engine_channel_.running() || engine_channel_.busy() || pending_commit_ || commit_edit_revision_ >= 0)
+      return;
+    if (!low_memory_event_)
+      low_memory_event_ = CreateMemoryResourceNotification(LowMemoryResourceNotification);
+    const bool pressure = low_memory_event_ && WaitForSingleObject(low_memory_event_, 0) == WAIT_OBJECT_0;
+    if (quiet_ms < 60000 && (!pressure || (composing && quiet_ms < 5000))) return;
+    engine_channel_.Stop();
+    submitted_revision_ = -1;
+    retry_engine_at_ = 0;
+  };
+  if (!document_focused_ || !context_ || !session_.composing()) {
+    ime::DecodeInput ignored;
+    std::vector<ime::Candidate> candidates;
+    engine_channel_.Poll(&ignored, &candidates);
+    if (!engine_channel_.busy()) {
+      if (!session_.composing() || (session_.candidates_ready() && !session_.typing()))
+        release_idle_worker(session_.composing());
+      cand_window_.SetPollInterval(engine_channel_.running() ? 1000 : 0);
+    }
+    return;
+  }
   if (!CompartmentEnabled(thread_mgr_, GUID_COMPARTMENT_KEYBOARD_OPENCLOSE, true) ||
       CompartmentEnabled(context_, GUID_COMPARTMENT_KEYBOARD_DISABLED, false) ||
       CompartmentEnabled(context_, GUID_COMPARTMENT_EMPTYCONTEXT, false)) {
-    cand_window_.Hide(); return;
-  }
-  if (!session_.composing()) {
-    ime::DecodeInput ignored; std::vector<ime::Candidate> candidates;
-    engine_channel_.Poll(&ignored, &candidates);
+    cand_window_.Hide();
+    cand_window_.SetPollInterval(1000);
     return;
   }
-  StartEngine();
-  if (session_.revision() != submitted_revision_ || session_.interaction_generation() != submitted_interaction_ ||
-      session_.context_generation() != submitted_context_) {
-    engine_channel_.Submit(session_.decode_input());
+  if (HasQueuedFinal() && !queued_final_->retry_candidates.empty() && now>=queued_final_->retry_at) {
+    auto next=session_;
+    if (next.ApplyCandidates(session_.decode_input(),queued_final_->retry_candidates)) {
+      queued_final_->retry_delay=(std::min<DWORD>)(2*queued_final_->retry_delay,1000);
+      queued_final_->retry_at=now+queued_final_->retry_delay;
+      cand_window_.SetPollInterval(queued_final_->retry_delay);
+      RequestState(context_,next,next.visible_text(),false,false,true);
+    } else {
+      queued_final_.reset();
+    }
+  }
+  // One late key can still arrive. Give a regular typist another half interval
+  // of slack; irregular or newly started input keeps a longer grace period.
+  const DWORD refine_after = measured_intervals_ >= 3
+      ? std::clamp<DWORD>((3*key_interval_ms_)/2+10,70,230) : 180;
+  if (session_.typing() && quiet_ms >= refine_after) session_.RefineCandidates();
+  if (!first_preview_at_) first_preview_at_=now;
+  const auto interval=std::clamp<DWORD>(2*preview_delay_ms_,75,180);
+  const bool due = !session_.typing() || quiet_ms >= preview_delay_ms_ ||
+      now-(last_submit_at_ ? last_submit_at_ : first_preview_at_) >= interval;
+  if (!engine_channel_.running() && !session_.candidates_ready()) submitted_revision_ = -1;
+  if (due && !HasQueuedFinal() && session_.needs_typing_lookup() && (!engine_channel_.busy() || !session_.typing()) && (session_.typing() || !session_.candidates_ready()) && !(session_.is_converting() && session_.candidates_ready()) &&
+      session_.raw_text().size() <= 512 &&
+      (session_.revision() != submitted_revision_ || session_.interaction_generation() != submitted_interaction_ ||
+       session_.context_generation() != submitted_context_) && StartEngine()) {
+    last_submit_at_ = now;
+    auto request = session_.preview_request();
+    request.dictionary_preview = session_.typing() &&
+        (!engine_channel_.last_decode_ms() || preview_delay_ms_ >= 55);
+    engine_channel_.Submit(request);
     submitted_revision_ = session_.revision(); submitted_interaction_ = session_.interaction_generation();
     submitted_context_ = session_.context_generation();
   }
   ime::DecodeInput request; std::vector<ime::Candidate> result;
-  if (engine_channel_.Poll(&request, &result)) {
+  bool provisional = false;
+  if (engine_channel_.Poll(&request, &result, &provisional)) {
+    // A responsive worker earned an immediate restart if it later exits.
+    retry_engine_at_ = 0;
+    if (request.phase=="typing") {
+      const auto target = std::clamp<DWORD>(engine_channel_.last_decode_ms() / 2, 25, 125);
+      preview_delay_ms_ = (preview_delay_ms_ + target) / 2;
+    }
     auto next = session_;
-    if (next.ApplyCandidates(request, std::move(result)))
+    bool changed = false;
+    if (provisional) {
+      changed = next.ApplyPendingPreview(request,std::move(result),++received_preview_sequence_);
+    } else if (request.raw_text!=next.raw_text()) {
+      changed = !result.empty() && next.ApplyTypingPrefix(request,result.front());
+    } else if (request.phase=="typing" && !next.typing()) {
+      changed = next.ApplyPendingPreview(request,std::move(result));
+    } else {
+      changed = next.ApplyCandidates(request,std::move(result));
+    }
+    if (changed)
       RequestState(context_, next, next.visible_text(), false, false, true);
   }
-  if (pending_commit_ && (session_.candidates_ready() || !engine_channel_.running() || GetTickCount64() >= commit_deadline_))
+  if (pending_commit_ && (session_.candidates_ready() || HasQueuedFinal() || !engine_channel_.running() || GetTickCount64() >= commit_deadline_))
     FinishPendingCommit(true);
+  if (!pending_commit_ && HasQueuedFinal()) release_idle_worker(true);
+  // Full conversions wake this thread when their replies are ready. Retain a
+  // slower watchdog while there is no typing deadline or queued TSF edit.
+  if (engine_channel_.awaits_notified_reply() && !session_.typing() && !HasQueuedFinal() && !pending_commit_)
+    cand_window_.SetPollInterval(125);
+  if (!pending_commit_ && !engine_channel_.busy() && session_.candidates_ready() && !session_.typing()) {
+    release_idle_worker(true);
+    cand_window_.SetPollInterval(engine_channel_.running() ? 1000 : 0);
+  }
 }
 void TextService::ClickCandidate(int index) {
   if (!context_ || !foreground_) return;
+  last_key_at_ = GetTickCount64();
+  cand_window_.SetPollInterval(25);
   auto next = session_;
   if (!next.SelectCandidate(index)) return;
   auto text = next.visible_text(); next.PressEnter();
@@ -408,6 +603,7 @@ STDMETHODIMP_(ULONG) TextService::Release() {
 
 TextService::TextService() { ModuleAddRef(); session_.set_deferred_decoding(true); session_.set_learning_allowed(false); }
 TextService::~TextService() {
+  if (low_memory_event_) CloseHandle(low_memory_event_);
   if (lang_bar_mgr_ && input_mode_menu_) lang_bar_mgr_->RemoveItem(input_mode_menu_);
   if (input_mode_menu_) { input_mode_menu_->Release(); input_mode_menu_ = nullptr; }
   if (lang_bar_mgr_) { lang_bar_mgr_->Release(); lang_bar_mgr_ = nullptr; }
@@ -521,7 +717,7 @@ HRESULT TextService::ActivateInternal(ITfThreadMgr* ptim, TfClientId tid) {
     }
   }
   activated_ = true;
-  if (!restricted_) StartEngine();
+  // The first composition starts the worker on demand.
   g_diagnostics.activate_success.fetch_add(1);
   TipLog("ActivateInternal done client=%ld", static_cast<long>(client_id_));
   return S_OK;
@@ -634,8 +830,12 @@ STDMETHODIMP TextService::OnPreservedKey(ITfContext*, REFGUID, BOOL* pfEaten) {
 STDMETHODIMP TextService::OnSetFocus(BOOL fForeground) {
   foreground_ = fForeground != FALSE;
   if (foreground_) retry_engine_at_ = 0;
-  if (!foreground_) { cand_window_.Hide(); engine_channel_.FinishLearning(250); engine_channel_.Stop(); submitted_revision_ = -1; }
-  else if (activated_ && !restricted_) StartEngine();
+  if (!foreground_) {
+    ForgetDeferredFinal();
+    cand_window_.Hide(); engine_channel_.FinishLearning(250); engine_channel_.Stop();
+    submitted_revision_ = -1; last_submit_at_ = 0; cand_window_.SetPollInterval(0);
+  }
+  else if (activated_ && session_.composing() && !restricted_) cand_window_.SetPollInterval(25);
   return S_OK;
 }
 
@@ -684,6 +884,16 @@ HRESULT TextService::HandleKey(ITfContext* pic, WPARAM key, BOOL* eaten, bool te
   }
   if ((operation && !composing) || (!operation && !candidate_key && append.empty())) return S_OK;
   if (test) { *eaten = TRUE; g_diagnostics.test_eaten.fetch_add(1); return S_OK; }
+  if (!composing) first_preview_at_ = last_submit_at_ = 0;
+  const auto now=GetTickCount64();
+  const auto gap=now-last_key_at_;
+  if (composing && !converting && !append.empty() && gap>0 && gap<=200) {
+    const auto sample=static_cast<DWORD>(gap);
+    key_interval_ms_=measured_intervals_ ? (3*key_interval_ms_+sample+2)/4 : sample;
+    measured_intervals_=std::min(3u,measured_intervals_+1);
+  } else measured_intervals_=0;
+  last_key_at_ = now;
+  cand_window_.SetPollInterval(25);
   document_focused_ = true;
   if (context_ != pic) {
     DetachComposition();
@@ -756,6 +966,7 @@ STDMETHODIMP TextService::OnSetFocus(ITfDocumentMgr* pdimFocus, ITfDocumentMgr*)
     document_focused_ = false;
     cand_window_.Hide();
     if (!pdimFocus) {
+      ForgetDeferredFinal();
       return S_OK;
     }
     ITfContext* ctx = nullptr;

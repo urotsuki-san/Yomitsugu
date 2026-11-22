@@ -1,4 +1,5 @@
 #include "user_dictionary.h"
+#include "public_index.h"
 #include <windows.h>
 #include <shlobj.h>
 #include <fstream>
@@ -28,9 +29,17 @@ std::filesystem::path UserDictionaryPath() {
   CoTaskMemFree(folder); return path;
 }
 bool UserDictionary::Load(const std::filesystem::path& path, std::string* error, bool public_dictionary) {
+  if (public_dictionary) {
+    auto index = PublicIndex::Open(path, error);
+    if (!index) return false;
+    *this = UserDictionary{};
+    count_ = index->size();
+    public_index_ = std::move(index);
+    return true;
+  }
   auto fail = [&](const char* why) { if (error) *error = why; return false; };
   std::error_code ec;
-  const auto max_bytes = public_dictionary ? 32*1024*1024 : 4*1024*1024;
+  const auto max_bytes = 4*1024*1024;
   if (std::filesystem::file_size(path, ec) > max_bytes || ec) return fail("Missing dictionary or size exceeds limit");
   std::ifstream file(path, std::ios::binary);
   if (!file) return fail("Cannot open dictionary");
@@ -73,12 +82,14 @@ bool UserDictionary::Load(const std::filesystem::path& path, std::string* error,
         {u8"形容詞","adjective"},{u8"副詞","adverb"},{u8"感動詞","interjection"},{u8"記号","symbol"}};
       auto category = categories.find(pos);
       if (category != categories.end()) pos = category->second;
-      if (!public_dictionary) export_entries.push_back({{"reading",reading},{"word",word},{"pos",pos}});
+      if (count <= 1000) export_entries.push_back({{"reading",reading},{"word",word},{"pos",pos}});
+      else if (count == 1001) export_entries = nlohmann::json::array();
     }
-    if (count > (public_dictionary ? 700000 : 100000) || words.size() > 32) return fail("Too many dictionary entries");
+    if (count > 100000 || words.size() > 32) return fail("Too many dictionary entries");
   }
   if (!file.eof()) return fail("Dictionary read failed");
   auto json = export_entries.dump();
+  public_index_.reset();
   entries_ = std::move(entries); symbol_only_readings_ = std::move(symbol_only_readings);
   supplemental_readings_ = std::move(supplemental_readings);
   priority_readings_ = std::move(priority_readings);
@@ -86,6 +97,38 @@ bool UserDictionary::Load(const std::filesystem::path& path, std::string* error,
   supplemental_words_ = std::move(supplemental_words);
   count_ = count; json_ = std::move(json);
   if (error) error->clear(); return true;
+}
+std::vector<std::pair<std::string,std::string>> UserDictionary::UniqueWordsIn(const std::string& reading, bool* has_entry) const {
+  std::vector<std::pair<std::string,std::string>> result;
+  if (has_entry) *has_entry = false;
+  if (entries_.empty() || reading.size() > 384) return result;
+  for (size_t start = 0; start < reading.size(); ++start) {
+    if ((static_cast<unsigned char>(reading[start]) & 0xc0) == 0x80) continue;
+    for (size_t end = start + 1; end <= reading.size(); ++end) {
+      if (end < reading.size() && (static_cast<unsigned char>(reading[end]) & 0xc0) == 0x80) continue;
+      const auto prefix = reading.substr(start, end - start);
+      auto it = entries_.lower_bound(prefix);
+      if (it == entries_.end() || it->first.compare(0, prefix.size(), prefix)) break;
+      if (prefix.size() >= 6 && it->first == prefix) {
+        if (has_entry) *has_entry = true;
+        if (it->second.size() == 1 && !symbol_only_readings_.count(prefix) && !supplemental_readings_.count(prefix))
+          result.emplace_back(prefix, it->second.front());
+      }
+    }
+  }
+  return result;
+}
+unsigned UserDictionary::Flags(std::string_view reading) const {
+  if (public_index_) return public_index_->Flags(reading);
+  const std::string key(reading);
+  if (!entries_.count(key)) return 0;
+  return Present | (symbol_only_readings_.count(key) ? SymbolOnly : 0) |
+         (supplemental_readings_.count(key) ? Supplemental : 0) |
+         (priority_readings_.count(key) ? Priority : 0) | (english_words_.count(key) ? English : 0);
+}
+std::vector<std::string> UserDictionary::Words(std::string_view reading, bool supplemental_only) const {
+  if (public_index_) return public_index_->Words(reading, supplemental_only);
+  return (supplemental_only ? supplemental_words_ : entries_).at(std::string(reading));
 }
 void UserDictionary::Apply(const DecodeInput& input, std::vector<Candidate>* candidates,
                            bool public_dictionary) const {
@@ -99,16 +142,16 @@ bool UserDictionary::ApplyEnglish(const DecodeInput& input, std::vector<Candidat
   std::transform(lower.begin(),lower.end(),lower.begin(),[](unsigned char ch){return static_cast<char>(std::tolower(ch));});
   bool ok=false;auto reading=ConvertRomaji(raw,&ok);
   // animeやsushiのように日本語の読みでもある単語は、かな漢字変換を優先する。
-  if(ok && entries_.count(reading)) return false;
+  if(ok && Flags(reading)) return false;
   std::string output;
-  bool exact=english_words_.count(lower)!=0;
+  bool exact=(Flags(lower) & English)!=0;
   if(exact) output=raw;
   else {
     for(size_t end=std::min<size_t>(30,raw.size());end>=4;--end) {
-      if(end==raw.size() || !english_words_.count(lower.substr(0,end))) continue;
+      if(end==raw.size() || !(Flags(std::string_view(lower).substr(0,end)) & English)) continue;
       bool prefix_ok=false;
       const auto prefix_reading=ConvertRomaji(raw.substr(0,end),&prefix_ok);
-      if(prefix_ok && entries_.count(prefix_reading)) continue;
+      if(prefix_ok && Flags(prefix_reading)) continue;
       auto suffix=raw.substr(end);
       bool particle=false;
       for(auto prefix: {"wo","ga","no","ni","ha","de","to","mo","he"})
@@ -137,36 +180,51 @@ bool UserDictionary::ApplyEnglish(const DecodeInput& input, std::vector<Candidat
   *candidates=std::move(combined);
   return true;
 }
+namespace {
+bool HasLiteralVersionPrefix(const DecodeInput& input, const std::vector<Candidate>& candidates) {
+  const auto& raw = input.raw_text;
+  const auto end = raw.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ");
+  if (candidates.empty() || !end || end == std::string::npos) return false;
+  const auto number = end + (raw[end] == '.');
+  if (number >= raw.size() || raw[number] < '0' || raw[number] > '9') return false;
+  // Retain a versioned Latin stem already preserved by the decoder. A kana
+  // prefix copied from its first few keystrokes is not a word boundary.
+  return candidates.front().reading_text.compare(0, end, raw, 0, end) == 0 &&
+         !ConvertRomajiChecked(raw.substr(0, end), nullptr);
+}
+}
+
 void UserDictionary::ApplyExact(const DecodeInput& input, std::vector<Candidate>* candidates,
                                 bool public_dictionary) const {
-  if (entries_.empty() || input.raw_text.size() > 512 || input.candidate_limit <= 0 ||
+  if (!count_ || input.raw_text.size() > 512 || input.candidate_limit <= 0 ||
       input.field == "code" || input.field == "identifier" || input.field == "password" ||
       input.field == "url" || input.field == "path" || input.field == "email") return;
   bool ok = false;
   auto reading = ConvertRomaji(input.raw_text, &ok);
-  if (!ok && public_dictionary) {
+  if (!ok && public_dictionary && !HasLiteralVersionPrefix(input, *candidates)) {
     // 英語が続く場合も文頭の登録語を探し、残った入力を変換する。
     for (size_t end = reading.size(); end >= 3; --end) {
       if (end < reading.size() &&
           (static_cast<unsigned char>(reading[end]) & 0xc0) == 0x80) continue;
-      auto found = entries_.find(reading.substr(0, end));
-      if (found == entries_.end()) continue;
-      if (supplemental_readings_.count(found->first) && !priority_readings_.count(found->first)) continue;
+      auto key = std::string_view(reading).substr(0, end);
+      const auto flags = Flags(key);
+      if (!flags || ((flags & Supplemental) && !(flags & Priority))) continue;
       size_t raw_end = 0;
       for (size_t i = 1; i <= input.raw_text.size(); ++i) {
         bool prefix_ok = false;
         auto converted = ConvertRomaji(input.raw_text.substr(0, i), &prefix_ok);
-        if (prefix_ok && converted == found->first) { raw_end = i; break; }
+        if (prefix_ok && converted == key) { raw_end = i; break; }
       }
       if (!raw_end || raw_end >= input.raw_text.size()) continue;
       DecodeInput suffix_input = input;
       suffix_input.raw_text = input.raw_text.substr(raw_end);
-      suffix_input.left_context += found->second.front();
+      const auto words = Words(key);
+      suffix_input.left_context += words.front();
       auto suffix_candidates = Decode(suffix_input);
       if (suffix_candidates.empty() || suffix_candidates.front().is_raw) continue;
       std::vector<Candidate> combined;
       std::set<std::string> seen;
-      for (const auto& word : found->second) {
+      for (const auto& word : words) {
         Candidate candidate;
         candidate.output_text = word + suffix_candidates.front().output_text;
         candidate.reading_text = reading;
@@ -188,36 +246,42 @@ void UserDictionary::ApplyExact(const DecodeInput& input, std::vector<Candidate>
     }
   }
   if (!ok) reading = input.raw_text;
-  auto it = entries_.find(reading);
-  const bool exact = it != entries_.end();
+  std::string_view key(reading);
+  auto flags = Flags(key);
+  const bool exact = flags != 0;
   std::string prefix, suffix;
   if (!exact) {
     // 最初に見つかる最長の登録語を使い、前後の文字列を残した候補を作る。
-    for (size_t start=0; start<reading.size() && it==entries_.end(); ++start) {
+    for (size_t start=0; start<reading.size() && !flags; ++start) {
       if ((static_cast<unsigned char>(reading[start]) & 0xC0) == 0x80) continue;
-      for (size_t end=reading.size(); end>start; --end) {
+      const auto tail = std::string_view(reading).substr(start);
+      const size_t bound = public_index_ ? public_index_->MaxEmbeddedLength(tail) : tail.size();
+      for (size_t end=start+bound; end>start; --end) {
         if (end<reading.size() && (static_cast<unsigned char>(reading[end]) & 0xC0) == 0x80) continue;
         // 1文字の読みは単語の途中に適用しない。
           if (end-start<6) continue;
-          auto found=entries_.find(reading.substr(start,end-start));
+          auto part = std::string_view(reading).substr(start,end-start);
+          const auto found = Flags(part);
           // 短い一般語を文中へ機械的に差し込むと、全文候補が同音の断片で埋まる。
-          if (public_dictionary && found!=entries_.end() && end-start<12 &&
-              supplemental_readings_.count(found->first) && !priority_readings_.count(found->first)) continue;
-          if (found != entries_.end()) { it=found; prefix=reading.substr(0,start); suffix=reading.substr(end); break; }
+          if (public_dictionary && end-start<12 && (found & Supplemental) && !(found & Priority)) continue;
+          if (found) { flags=found; key=part; prefix=reading.substr(0,start); suffix=reading.substr(end); break; }
       }
     }
-    if (it==entries_.end()) return;
+    if (!flags) return;
+  }
+  const auto words = Words(key);
+  if (!exact) {
       auto surface=[&input](const std::string& kana, const std::string& left, const std::string& right) {
         if(kana.empty())return kana;
         auto list=AzookeyConvert(kana,1,left,right,input.phase!="typing"); return list.empty()?kana:list.front();
       };
       prefix=surface(prefix,input.left_context,{});
-      suffix=surface(suffix,input.left_context+prefix+it->second.front(),input.right_context);
+      suffix=surface(suffix,input.left_context+prefix+words.front(),input.right_context);
   }
   std::vector<Candidate> combined; std::set<std::string> seen;
   bool first_is_arrow = false;
-  if (exact && !it->second.empty()) {
-    const auto& first = it->second.front();
+  if (exact && !words.empty()) {
+    const auto& first = words.front();
     if (first.size() >= 3) {
       const auto a = static_cast<unsigned char>(first[0]);
       const auto b = static_cast<unsigned char>(first[1]);
@@ -227,15 +291,32 @@ void UserDictionary::ApplyExact(const DecodeInput& input, std::vector<Candidate>
     }
   }
   const bool preserve_primary = public_dictionary && exact &&
-      ((symbol_only_readings_.count(reading) && !first_is_arrow) ||
-       (supplemental_readings_.count(reading) && !priority_readings_.count(reading) && !first_is_arrow));
+      !first_is_arrow && ((flags & SymbolOnly) || ((flags & Supplemental) && !(flags & Priority)));
   if ((!exact || preserve_primary) && !candidates->empty()) {
     combined.push_back(candidates->front()); seen.insert(candidates->front().output_text);
   }
-  for (const auto& word : it->second) {
+  for (const auto& word : words) {
     Candidate c; c.output_text = prefix + word + suffix; c.reading_text = reading;
     if (seen.insert(c.output_text).second) combined.push_back(c);
     if (!exact && combined.size()>=4) break;
+  }
+  if (public_dictionary && !exact && !candidates->empty() && combined.size() > 1) {
+    // Independently decoding the text around a partial public entry can
+    // introduce a wrong word boundary. Prefer complete-phrase alternatives
+    // if none of the inserted spellings also occurred in the original list.
+    const bool supported = std::any_of(combined.begin() + 1, combined.end(), [&](const auto& word) {
+      return std::any_of(candidates->begin(), candidates->end(), [&](const auto& row) {
+        return row.output_text == word.output_text;
+      });
+    });
+    if (!supported) {
+      size_t position = 1;
+      for (const auto& row : *candidates) {
+        if (row.is_raw || row.output_text == input.raw_text || !seen.insert(row.output_text).second) continue;
+        combined.insert(combined.begin() + position, row);
+        if (++position == 3) break;
+      }
+    }
   }
   for (const auto& c : *candidates) if (seen.insert(c.output_text).second) combined.push_back(c);
   Candidate raw; raw.output_text = raw.reading_text = input.raw_text; raw.is_raw = true;
@@ -249,7 +330,8 @@ void UserDictionary::ApplyExact(const DecodeInput& input, std::vector<Candidate>
 
 void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Candidate>* candidates) const {
   // 補正した読みを先に辞書で照合し、変換器に渡す候補を絞る。
-  if (input.field != "prose" || input.candidate_limit < 2 || supplemental_readings_.empty()) return;
+  if (input.field != "prose" || input.candidate_limit < 2 ||
+      (public_index_ ? !public_index_->has_supplemental() : supplemental_readings_.empty())) return;
   auto raw = input.raw_text;
   std::string punctuation;
   if (!raw.empty() && raw.back() == '.') { raw.pop_back(); punctuation = u8"。"; }
@@ -257,7 +339,7 @@ void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Cand
       raw.find_first_not_of("abcdefghijklmnopqrstuvwxyz-'") != std::string::npos) return;
   bool original_ok = false;
   const auto original = ConvertRomaji(raw, &original_ok);
-  if (entries_.count(original)) return; // valid dictionary words are never corrected
+  if (Flags(original)) return; // valid dictionary words are never corrected
 
   struct Repair { int cost; bool promote; };
   std::map<std::string, Repair> readings;
@@ -307,7 +389,7 @@ void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Cand
     for (size_t end=reading.size(); end>=12; --end) {
       if (end<reading.size() && (static_cast<unsigned char>(reading[end])&0xc0)==0x80) continue;
       auto prefix=reading.substr(0,end);
-      if (!supplemental_readings_.count(prefix) || original.compare(0,end,prefix)==0) continue;
+      if (!(Flags(prefix) & Supplemental) || original.compare(0,end,prefix)==0) continue;
       auto suffix=reading.substr(end);
       if (!suffix.empty()) {
         bool grammatical=false;
@@ -343,7 +425,7 @@ void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Cand
   }
   // 元の文頭が辞書に一致する場合は、その読みを優先する。
   for (size_t end=original.size(); promote && end>=12; --end) {
-    if (entries_.count(original.substr(0,end)) && end+6>=matches.front().reading.size()) {
+    if (Flags(std::string_view(original).substr(0,end)) && end+6>=matches.front().reading.size()) {
       const auto suffix=original.substr(end);
       for(auto particle : {u8"を",u8"に",u8"が",u8"は",u8"で",u8"と",u8"も",u8"の",u8"へ"})
         if(suffix.compare(0,std::strlen(particle),particle)==0) promote=false;
@@ -351,14 +433,14 @@ void UserDictionary::ApplyCorrections(const DecodeInput& input, std::vector<Cand
   }
   if (!candidates->empty() && candidates->front().output_text==input.raw_text) promote=false;
   // エンジンが既に辞書にある仮名語へ補正した場合、別の機械的な補正で上書きしない。
-  if (!candidates->empty() && entries_.count(candidates->front().output_text)) promote=false;
+  if (!candidates->empty() && Flags(candidates->front().output_text)) promote=false;
   std::vector<Candidate> combined;
   std::set<std::string> seen;
   auto append=[&](const Candidate& c) { if(seen.insert(c.output_text).second) combined.push_back(c); };
   if (!promote && !candidates->empty()) append(candidates->front());
   for (size_t i=0; i<matches.size() && i<3; ++i) {
     const auto& match=matches[i];
-    const auto& words=supplemental_words_.at(match.reading);
+    const auto words=Words(match.reading,true);
     auto suffix=match.suffix;
     if (!suffix.empty()) {
       auto converted=AzookeyConvert(suffix,1,input.left_context+words.front(),input.right_context,input.phase!="typing");

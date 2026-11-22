@@ -9,6 +9,7 @@
 #include "user_dictionary.h"
 #include "learning_store.h"
 #include "dictionary_status.h"
+#include "../src/public_index.h"
 namespace {
 int failures = 0, checks = 0;
 void Check(bool pass, const char* name) { ++checks; if (!pass) ++failures; std::cout << (pass ? "PASS " : "FAIL ") << name << '\n'; }
@@ -50,9 +51,75 @@ int wmain(int argc, wchar_t** argv) {
   UserDictionary public_dictionary; std::string public_error;
   Check(public_dictionary.Load(public_host.parent_path()/L"public_dictionary.tsv", &public_error, true) && public_dictionary.size() >= 3000,
         "public dictionary loaded from engine directory");
+  {
+    // Verify every reading in the shipping TSV, including the source order of homophones.
+    auto path = public_host.parent_path() / L"public_dictionary.tsv";
+    auto index = PublicIndex::Open(path, &public_error);
+    std::ifstream in(path, std::ios::binary);
+    std::map<std::string, std::vector<std::string>> expected;
+    std::string line;
+    while (std::getline(in, line)) {
+      if (!line.empty() && line.back() == '\r') line.pop_back();
+      if (line.compare(0, 3, "\xEF\xBB\xBF") == 0) line.erase(0, 3);
+      if (line.empty() || line.front() == '#' || line.front() == '!') continue;
+      auto tab = line.find('\t');
+      auto next = line.find('\t', tab + 1);
+      auto word = line.substr(tab + 1, next - tab - 1);
+      auto& words = expected[line.substr(0, tab)];
+      if (std::find(words.begin(), words.end(), word) == words.end()) words.push_back(word);
+    }
+    bool match = index && in.eof() && !expected.empty();
+    for (const auto& entry : expected) {
+      if (!match || index->Words(entry.first, false) != entry.second) { match = false; break; }
+    }
+    Check(match, "mapped dictionary preserves every surface in original order");
+  }
+  {
+    const auto path = std::filesystem::temp_directory_path() / (L"yomitsugu_index_" + std::to_wstring(GetCurrentProcessId()) + L".tsv");
+    { std::ofstream file(path, std::ios::binary); file << u8"\uFEFFz\tZ\tsymbol\r\n"
+        u8"a\t初\t補助語\r\nz\tZ\tnoun\r\na\t次\tnoun\r\n"; }
+    std::string error;
+    auto index = PublicIndex::Open(path, &error);
+    Check(index && index->size() == 3 && index->Flags("a") == (Present | Supplemental | Priority) &&
+          index->Flags("z") == (Present | SymbolOnly) && index->Words("a", true) == std::vector<std::string>{u8"初"} &&
+          index->Words("a", false) == std::vector<std::string>{u8"初", u8"次"}, "unsorted public update, BOM, CRLF and duplicate POS");
+    UserDictionary dict;
+    Check(dict.Load(path, &error, true), "mapped test dictionary loaded");
+    auto replacement = path; replacement += L".new";
+    { std::ofstream file(replacement); file << "invalid row\n"; }
+    Check(MoveFileExW(replacement.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING) &&
+          !dict.Load(path, &error, true) && dict.size() == 3 && index && index->Words("z", false) == std::vector<std::string>{"Z"},
+          "failed atomic replacement preserves the current mapping");
+    std::filesystem::remove(path);
+    std::filesystem::remove(replacement);
+  }
+  {
+    const auto path=std::filesystem::temp_directory_path() /
+        (L"yomitsugu_partial_rank_" + std::to_wstring(GetCurrentProcessId()) + L".tsv");
+    { std::ofstream file(path,std::ios::binary); file << u8"ねこ\t音子\t名詞\n"; }
+    UserDictionary fixture;
+    std::string error;
+    Check(fixture.Load(path,&error),"load synthetic partial public entry");
+    DecodeInput input; input.raw_text="nekogawarau";
+    const std::vector<std::string> whole={u8"猫が笑う",u8"猫がわらう",u8"ねこが笑う"};
+    std::vector<Candidate> rows;
+    for (const auto& word:whole) { Candidate row; row.output_text=word; rows.push_back(row); }
+    fixture.Apply(input,&rows,true);
+    Check(rows.size()>3 && rows[0].output_text==whole[0] && rows[1].output_text==whole[1] &&
+          rows[2].output_text==whole[2] && rows[3].output_text.find(u8"音子")==0,
+          "an uncorroborated partial entry follows whole-phrase alternatives");
+    std::filesystem::remove(path);
+  }
   auto DecodeWithPublic = [&](DecodeInput input) {
     auto list = Decode(input); public_dictionary.Apply(input, &list, true); return list;
   };
+  {
+    DecodeInput input;
+    input.raw_text = "version2.12";
+    const auto rows = DecodeWithPublic(input);
+    Check(!rows.empty() && rows.front().output_text == input.raw_text,
+          "public kana prefixes do not rewrite a versioned Latin identifier");
+  }
   {
     DecodeInput input;input.raw_text="de-taeb-su.";
     Candidate literal;literal.output_text=u8"de-taeb-su。";
@@ -327,6 +394,19 @@ int wmain(int argc, wchar_t** argv) {
     channel.Submit(request);done=false;list.clear();until=GetTickCount64()+30000;
     while(GetTickCount64()<until&&channel.running()){if(channel.Poll(&reply,&list)){done=true;break;}Sleep(5);}
     Check(done&&!list.empty()&&list.front().output_text==u8"散会","chosen candidate survives worker restart");
+    {
+      std::ofstream entries(profile / L"user_dictionary.tsv", std::ios::binary);
+      entries << u8"version4.1\t社内安定版\t名詞\n";
+    }
+    request.raw_text="version4.1"; channel.Submit(request); done=false; list.clear();
+    until=GetTickCount64()+30000;
+    while(GetTickCount64()<until && channel.running()) {
+      if(channel.Poll(&reply,&list)){done=true;break;}
+      Sleep(5);
+    }
+    Check(done && !list.empty() && list.front().output_text==u8"社内安定版",
+          "an exact personal entry may intentionally omit a version number");
+    std::filesystem::remove(profile/L"user_dictionary.tsv");
     channel.Stop(); Check(!channel.running(),"owned worker stops without touching applications");
     std::filesystem::remove(profile/L"learning.json");std::filesystem::remove(profile/L"settings.json");std::filesystem::remove(profile);
     Check(!channel.Start((host.parent_path()/L"missing_engine.exe").wstring()),"missing worker degrades safely"); }

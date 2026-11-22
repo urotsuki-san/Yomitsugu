@@ -25,17 +25,28 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw 'pytest failed' }
           uv run python -c "from ime_mixed.evaluate import evaluate_seed_file; s=evaluate_seed_file('ime_acceptance_seed_cases.jsonl')['summary']; print(s); assert s['failed']==0"
           if ($LASTEXITCODE -ne 0) { throw 'acceptance seed failed' }
+      - uses: actions/cache@v4
+        id: hybrid-libs
+        with:
+          path: native/third_party/iroha/dist-windows/lib
+          key: vs2022-x64-hybrid-${{ hashFiles('scripts/ci/build_hybrid_libraries.ps1', 'native/third_party/iroha/patches/*.patch') }}
+      - name: Build hybrid inference libraries
+        if: steps.hybrid-libs.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: scripts/ci/build_hybrid_libraries.ps1
       - name: Build native source
         shell: pwsh
         run: |
           cmake -S native -B native/build -A x64
           if ($LASTEXITCODE -ne 0) { throw 'CMake configuration failed' }
-          cmake --build native/build --config Release --target tip_stability_test learning_test app_update_test engine_test debug_dump ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
+          cmake --build native/build --config Release --target policy_test channel_test public_index_test tip_stability_test learning_test app_update_test engine_test debug_dump ime_mixed_tip ime_engine_host e2e_tip_tests tip_com_smoke
           if ($LASTEXITCODE -ne 0) { throw 'Native build failed' }
           & native/build/Release/learning_test.exe
           if ($LASTEXITCODE -ne 0) { throw 'Learning cache test failed' }
           & native/build/Release/tip_stability_test.exe
           if ($LASTEXITCODE -ne 0) { throw 'TIP stability test failed' }
+          ctest --test-dir native/build -C Release -R "adaptive_|bundled_public_dictionary" --output-on-failure
+          if ($LASTEXITCODE -ne 0) { throw "Hybrid regression failed" }
       - name: Dictionary update history
         shell: pwsh
         run: scripts/ci/test_dictionary_update.ps1
@@ -78,6 +89,15 @@ jobs:
             upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_dictionary_storage/LICENSE
             upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_emoji_dictionary_storage/README.md
             upstream/myime/src/AzooKeyKanaKanjiConverter/Sources/KanaKanjiConverterModuleWithDefaultDictionary/azooKey_emoji_dictionary_storage/data/README.md
+      - uses: actions/cache@v4
+        id: hybrid-libs
+        with:
+          path: native/third_party/iroha/dist-windows/lib
+          key: vs2022-x64-hybrid-${{ hashFiles('scripts/ci/build_hybrid_libraries.ps1', 'native/third_party/iroha/patches/*.patch') }}
+      - name: Build hybrid inference libraries
+        if: steps.hybrid-libs.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: scripts/ci/build_hybrid_libraries.ps1
       - name: Build and test full engine
         shell: pwsh
         run: |

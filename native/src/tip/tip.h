@@ -6,6 +6,7 @@
 #include <vector>
 #include <string>
 #include <memory>
+#include <optional>
 
 #include "ime_engine.h"
 #include "engine_channel.h"
@@ -39,9 +40,12 @@ class CandidateWindow {
   void Hide();
   void SetService(TextService* svc) { service_ = svc; }
   void SetOwner(HWND owner);
+  void SetPollInterval(UINT milliseconds);
+  HWND poll_hwnd() const { return poll_window_; }
   HWND hwnd() const { return hwnd_; }
 
  private:
+  UINT poll_interval_ = 0;
   friend struct TipStabilityTest;
   static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
   HWND poll_window_ = nullptr;
@@ -50,6 +54,8 @@ class CandidateWindow {
   HFONT font_ = nullptr;
   TextService* service_ = nullptr;
   UINT font_dpi_ = 0;
+  int measured_width_ = 0;
+  std::vector<std::pair<std::string,bool>> displayed_;
 };
 
 class TextService : public ITfTextInputProcessorEx,
@@ -100,11 +106,14 @@ class TextService : public ITfTextInputProcessorEx,
   HRESULT EditSetText(TfEditCookie ec, ITfContext* pic, const std::string& utf8, const std::string& caret);
   HRESULT EditEnd(TfEditCookie ec, ITfContext* pic, bool commit);
   HRESULT ApplyState(TfEditCookie ec, ITfContext* pic, const ime::DecodeInput& expected,
-                    const ime::Session& next, const std::string& text, bool finish, bool cancel);
+                    const ime::Session& next, const std::string& text, bool finish, bool cancel, uint64_t retry_token=0);
   void PollEngine();
+  void OnEngineReply(DWORD worker_pid, DWORD generation) {
+    if (engine_channel_.AcceptReplyWake(worker_pid,generation)) PollEngine();
+  }
   bool StartEngine();
   bool BeginPendingCommit();
-  void FinishEditCompleted(const ime::DecodeInput& expected);
+  void EditCompleted(const ime::DecodeInput& expected, bool finish);
   void ClickCandidate(int index);
   TfClientId client_id() const { return client_id_; }
   TfGuidAtom display_attr_atom() const { return display_attr_atom_; }
@@ -122,6 +131,8 @@ class TextService : public ITfTextInputProcessorEx,
   void ReleaseCompositionRef();
   void DetachComposition();
   HRESULT FinishPendingCommit(bool async);
+  bool HasQueuedFinal() const;
+  void ForgetDeferredFinal();
   void ResetSessionState();
   std::string Utf8FromW(LPWSTR ws, int len) const;
   std::wstring WFromUtf8(const std::string& s) const;
@@ -143,11 +154,30 @@ class TextService : public ITfTextInputProcessorEx,
   bool restricted_ = false;
   POINT caret_point_{0, 0};
   bool caret_valid_ = false;
+#ifdef YOMITSUGU_LIVE_TEST
+  std::wstring test_worker_, test_profile_;
+#endif
   ime::EngineChannel engine_channel_;
+  uint64_t received_preview_sequence_ = 0;
+  HANDLE low_memory_event_ = nullptr;
   int submitted_revision_ = -1;
+  ULONGLONG last_key_at_ = 0, last_submit_at_ = 0, first_preview_at_ = 0;
+  DWORD preview_delay_ms_ = 25;
+  DWORD key_interval_ms_ = 0;
+  unsigned measured_intervals_ = 0;
   int submitted_interaction_ = -1;
   int submitted_context_ = -1;
+  bool retry_after_early_exit_ = false;
   ULONGLONG retry_engine_at_ = 0;
+  struct QueuedFinal {
+    int revision, context, interaction;
+    ime::Candidate first;
+    std::vector<ime::Candidate> retry_candidates;
+    ULONGLONG retry_at = 0;
+    DWORD retry_delay = 25;
+    uint64_t retry_token = 0;
+  };
+  std::optional<QueuedFinal> queued_final_;
   bool pending_commit_ = false;
   ULONGLONG commit_deadline_ = 0;
   int commit_edit_revision_ = -1;

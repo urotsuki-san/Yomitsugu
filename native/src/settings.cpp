@@ -17,7 +17,7 @@
 namespace {
 constexpr int kOpen = 101, kImport = 102, kUpdate = 103, kAbout = 104;
 constexpr int kLearning = 105, kClearLearning = 106;
-constexpr int kAppUpdate = 107;
+constexpr int kAppUpdate = 107, kModel = 108;
 constexpr UINT kUpdateDone = WM_APP + 1;
 constexpr UINT kAppUpdateDone = WM_APP + 2;
 struct UpdateResult {
@@ -27,7 +27,27 @@ struct UpdateResult {
 };
 HWND window = nullptr, update_button = nullptr;
 HWND app_update_button = nullptr;
-HWND learning_checkbox = nullptr;
+HWND learning_checkbox = nullptr, model_combo = nullptr;
+HWND model_label = nullptr, model_detail = nullptr;
+struct ModelItem {ime::ConversionModel id; const wchar_t* title; const wchar_t* detail;};
+constexpr ModelItem models[] = {
+  {ime::ConversionModel::Automatic,L"自動最適化（既定）",L"打鍵中から変換します。候補が割れると詳しく調べ、操作が止まるとモデルを解放します。"},
+  {ime::ConversionModel::HybridLowMemory,L"ハイブリッド・省メモリ",L"辞書とJinenを使い、候補が割れたときに詳細探索とirohaを呼び出します。"},
+  {ime::ConversionModel::CompactExtendedSearch,L"軽量・詳細探索",L"Zenzai xsmallで、確定前に複数の候補を再評価します。"},
+  {ime::ConversionModel::HybridDictionaryVerify,L"ハイブリッド・辞書照合",L"候補が割れたとき、辞書にある単語の読みと表記も照合します。"},
+  {ime::ConversionModel::HybridFull,L"ハイブリッド・詳細変換",L"自動最適化の第一候補を引き継ぎ、軽量モデルと文の区切りから別の候補を探します。確定に時間がかかります。"},
+  {ime::ConversionModel::Compact,L"軽量",L"Zenzai xsmallを使います。推論回数を抑えて変換します。"},
+  {ime::ConversionModel::Standard,L"標準",L"Zenzai smallを使います。"},
+  {ime::ConversionModel::ExtendedSearch,L"詳細探索",L"Zenzai smallで、確定前に複数の候補を再評価します。"},
+  {ime::ConversionModel::DictionaryOnly,L"辞書のみ",L"ニューラルモデルを読み込まず、辞書で候補を作ります。"}
+};
+void ShowModel(ime::ConversionModel value) {
+  for (int i=0; i<static_cast<int>(std::size(models)); ++i) if (models[i].id==value) {
+    SendMessageW(model_combo,CB_SETCURSEL,i,0);
+    SetWindowTextW(model_detail,models[i].detail);
+    return;
+  }
+}
 bool updating = false;
 bool app_updating = false;
 std::filesystem::path base, user_dir;
@@ -38,7 +58,7 @@ ime::DictionaryStatus dictionary_status;
 HFONT title_font = nullptr, section_font = nullptr, body_font = nullptr, small_font = nullptr;
 
 COLORREF Ink() { return RGB(26, 43, 65); }
-COLORREF Muted() { return RGB(105, 122, 143); }
+COLORREF Muted() { return RGB(72, 90, 110); }
 COLORREF Accent() { return RGB(31, 110, 204); }
 void Text(HDC dc, HFONT font, COLORREF color, const wchar_t* value, RECT area, UINT format) {
   auto previous = SelectObject(dc, font);
@@ -65,7 +85,7 @@ std::filesystem::path OwnDirectory() {
   return std::filesystem::path(path).parent_path();
 }
 void RepaintStatus() {
-  if (window) { RECT area{28, 164, 710, 294}; InvalidateRect(window, &area, FALSE); }
+  if (window) InvalidateRect(window,nullptr,FALSE);
 }
 void RefreshStatus() {
   std::error_code ec;
@@ -182,13 +202,13 @@ void HandleAppUpdate(UpdateResult& result) {
 }
 void About() {
   MessageBoxW(window,
-    L"Yomitsugu 0.2.10-preview\r\nローマ字を打つそばから、日本語に変えるIMEです。\r\n\r\n変換はPC内で処理します。辞書はMozcとEDRDG、アプリの更新はGitHubから取得します。\r\n\r\n使い方はスタートメニューの「Yomitsugu → 使い方」、出典はインストール先の THIRD_PARTY.md を参照してください。",
+    L"Yomitsugu 0.2.10-hybrid.12\r\nローマ字を打つそばから、日本語に変えるIMEです。\r\n\r\n変換はPC内で処理します。辞書はMozcとEDRDG、アプリの更新はGitHubから取得します。\r\n\r\n使い方はスタートメニューの「Yomitsugu → 使い方」、出典はインストール先の THIRD_PARTY.md を参照してください。",
     L"Yomitsugu", MB_OK);
 }
 void DrawAction(const DRAWITEMSTRUCT* item) {
   HDC dc = item->hDC;
   RECT area = item->rcItem;
-  const bool primary = item->CtlID == kUpdate;
+  const bool primary = item->CtlID == kOpen;
   const bool disabled = (item->itemState & ODS_DISABLED) != 0;
   const bool pressed = (item->itemState & ODS_SELECTED) != 0;
   const COLORREF fill = primary ? (pressed ? RGB(19, 81, 165) : Accent()) :
@@ -204,13 +224,13 @@ void DrawAction(const DRAWITEMSTRUCT* item) {
     case kUpdate: heading=L"公開辞書を確認・更新"; description=L"最新データを取得して比較"; mark=L"↻"; break;
     case kAppUpdate: heading=L"アプリを更新"; description=L"最新版を確認してインストール"; mark=L"↓"; break;
   }
-  RECT icon_area{area.left+17, area.top+19, area.left+62, area.top+64};
+  RECT icon_area{area.left+12, area.top+10, area.left+48, area.top+46};
   Panel(dc, icon_area, primary ? RGB(55, 139, 228) : RGB(236, 245, 255),
         primary ? RGB(55, 139, 228) : RGB(236, 245, 255), 13);
   Text(dc, section_font, primary ? RGB(255,255,255) : Accent(), mark, icon_area,
        DT_CENTER | DT_VCENTER | DT_SINGLELINE);
-  RECT title_area{area.left+75,area.top+18,area.right-20,area.top+47};
-  RECT desc_area{area.left+75,area.top+48,area.right-12,area.bottom-11};
+  RECT title_area{area.left+60,area.top+5,area.right-9,area.top+31};
+  RECT desc_area{area.left+60,area.top+30,area.right-6,area.bottom-4};
   Text(dc, section_font, disabled ? RGB(181,190,200) : (primary ? RGB(255,255,255) : Ink()),
        heading,title_area,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   Text(dc, small_font, primary ? RGB(218,238,255) : Muted(), description,desc_area,
@@ -226,50 +246,32 @@ void DrawDashboard(HWND hwnd, HDC target) {
   HGDIOBJ previous = SelectObject(dc,image);
   auto page_brush = CreateSolidBrush(RGB(246,248,252));
   FillRect(dc,&client,page_brush); DeleteObject(page_brush);
-  RECT header{0,0,client.right,143};
-  auto header_brush = CreateSolidBrush(RGB(22,43,76));
-  FillRect(dc,&header,header_brush); DeleteObject(header_brush);
-  HICON logo = static_cast<HICON>(LoadImageW(GetModuleHandleW(nullptr), MAKEINTRESOURCEW(101),
-                                            IMAGE_ICON, 58, 58, LR_DEFAULTCOLOR));
-  if (logo) { DrawIconEx(dc, 35, 30, logo, 58, 58, 0, nullptr, DI_NORMAL); DestroyIcon(logo); }
-  RECT title{107,29,530,72};
-  Text(dc,title_font,RGB(255,255,255),L"Yomitsugu",title,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  RECT subtitle{108,78,610,110};
-  Text(dc,body_font,RGB(201,220,238),L"ローマ字を続けて、日本語へ",subtitle,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  RECT version{594,35,690,66};
-  Text(dc,small_font,RGB(178,206,235),L"PREVIEW 0.2.10",version,DT_RIGHT|DT_VCENTER|DT_SINGLELINE);
-  RECT status_card{34,169,690,288};
-  Panel(dc,status_card,RGB(255,255,255),RGB(222,230,240),18);
-  RECT public_label{54,178,330,198}, public_value{54,198,330,229};
-  RECT user_label{365,185,660,207}, user_value{365,210,660,243};
-  Text(dc,small_font,Muted(),L"公開辞書",public_label,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Text(dc,section_font,Ink(),public_status.c_str(),public_value,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Text(dc,small_font,Muted(),L"ユーザー辞書",user_label,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Text(dc,section_font,Ink(),user_status.c_str(),user_value,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  RECT divider{346,187,347,242}; auto line = CreateSolidBrush(RGB(229,235,242));
-  FillRect(dc,&divider,line); DeleteObject(line);
-  RECT update_date{54,232,330,254}, check_date{54,256,330,278};
-  Text(dc,small_font,Muted(),dictionary_updated.c_str(),update_date,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Text(dc,small_font,Muted(),dictionary_checked.c_str(),check_date,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  RECT note{365,246,665,282};
-  Text(dc,small_font,RGB(58,126,124),status_note.c_str(),note,DT_LEFT|DT_WORDBREAK);
-  RECT section{35,302,685,335};
-  Text(dc,section_font,Ink(),L"操作",section,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  RECT learning_panel{34,544,690,650};
-  Panel(dc,learning_panel,RGB(255,255,255),RGB(222,230,240),18);
-  RECT learning_note{54,592,665,615}, learning_count{54,618,665,642};
-  Text(dc,small_font,Muted(),L"確定した候補を、次の変換で優先します。",learning_note,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  Text(dc,small_font,Muted(),learning_status.c_str(),learning_count,DT_LEFT|DT_VCENTER|DT_SINGLELINE);
-  RECT footer{35,662,690,689};
-  Text(dc,small_font,Muted(),L"辞書と学習履歴はこのPCに保存されます",footer,
-       DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  RECT header{0,0,client.right,62};
+  auto navy = CreateSolidBrush(RGB(22,43,76)); FillRect(dc,&header,navy); DeleteObject(navy);
+  Text(dc,title_font,RGB(255,255,255),L"Yomitsugu", {24,8,222,51},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,body_font,RGB(216,230,244),L"設定と辞書", {224,12,400,52},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Panel(dc,{20,76,636,181},RGB(255,255,255),RGB(213,223,233),12);
+  Text(dc,small_font,Muted(),L"変更は次の入力から適用されます。",
+       {36,157,623,178},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,section_font,Ink(),L"辞書", {23,188,190,214},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Panel(dc,{20,218,636,307},RGB(255,255,255),RGB(213,223,233),12);
+  Text(dc,body_font,Ink(),L"公開辞書",{36,224,110,247},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,body_font,Ink(),public_status.c_str(),{122,224,390,247},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,small_font,Muted(),dictionary_updated.c_str(),{36,248,340,272},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,small_font,Muted(),dictionary_checked.c_str(),{36,271,340,295},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,body_font,Ink(),L"ユーザー辞書",{398,224,620,247},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,small_font,Muted(),user_status.c_str(),{398,249,620,272},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Text(dc,small_font,Muted(),(updating ? status_note.c_str() : L"入力と辞書はこのPCで処理します。"),
+       {398,271,625,295},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
+  Panel(dc,{20,445,636,528},RGB(255,255,255),RGB(213,223,233),12);
+  Text(dc,small_font,Muted(),learning_status.c_str(),{36,492,643,516},DT_LEFT|DT_VCENTER|DT_SINGLELINE);
   BitBlt(target,0,0,client.right,client.bottom,dc,0,0,SRCCOPY);
   SelectObject(dc,previous); DeleteObject(image); DeleteDC(dc);
 }
 LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) {
   switch (message) {
     case WM_CREATE: {
-      title_font = CreateFontW(-31,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,
+      title_font = CreateFontW(-27,0,0,0,FW_BOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,
                                CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Segoe UI");
       section_font = CreateFontW(-17,0,0,0,FW_SEMIBOLD,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,
                                  CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Yu Gothic UI");
@@ -277,27 +279,48 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) 
                               CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Yu Gothic UI");
       small_font = CreateFontW(-13,0,0,0,FW_NORMAL,FALSE,FALSE,FALSE,DEFAULT_CHARSET,0,0,
                                CLEARTYPE_QUALITY,DEFAULT_PITCH,L"Yu Gothic UI");
+      model_label=CreateWindowW(L"STATIC",L"変換モデル(&M)",WS_CHILD|WS_VISIBLE|SS_CENTERIMAGE,
+          36,86,155,31,hwnd,nullptr,nullptr,nullptr);
+      model_combo=CreateWindowW(L"COMBOBOX",L"変換モデル",WS_CHILD|WS_VISIBLE|WS_TABSTOP|WS_VSCROLL|CBS_DROPDOWNLIST,
+          197,88,418,250,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kModel)),nullptr,nullptr);
+      model_detail=CreateWindowW(L"STATIC",L"",WS_CHILD|WS_VISIBLE|SS_LEFT|SS_NOPREFIX,
+          36,117,582,40,hwnd,nullptr,nullptr,nullptr);
+      SendMessageW(model_label,WM_SETFONT,reinterpret_cast<WPARAM>(section_font),TRUE);
+      SendMessageW(model_combo,WM_SETFONT,reinterpret_cast<WPARAM>(body_font),TRUE);
+      SendMessageW(model_detail,WM_SETFONT,reinterpret_cast<WPARAM>(body_font),TRUE);
+      for (const auto& model : models) SendMessageW(model_combo,CB_ADDSTRING,0,reinterpret_cast<LPARAM>(model.title));
       const struct { int id; const wchar_t* text; int x,y; } buttons[] = {
-        {kOpen, L"ユーザー辞書を編集", 34,342}, {kImport, L"TSV辞書を取り込む", 370,342},
-        {kUpdate, L"公開辞書を確認・更新", 34,440}, {kAppUpdate, L"アプリを更新", 370,440}};
+        {kOpen,L"ユーザー辞書を編集",20,316},{kImport,L"TSV辞書を取り込む",333,316},
+        {kUpdate,L"公開辞書を確認・更新",20,380},{kAppUpdate,L"アプリを更新",333,380}};
       for (const auto& button : buttons) {
-        auto control = CreateWindowW(L"BUTTON", button.text, WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_OWNERDRAW,
-                                    button.x, button.y, 320, 87, hwnd,
-                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(button.id)), nullptr, nullptr);
-        if (button.id == kUpdate) update_button = control;
-        if (button.id == kAppUpdate) app_update_button = control;
+        auto control=CreateWindowW(L"BUTTON",button.text,WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_OWNERDRAW,
+            button.x,button.y,303,56,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(button.id)),nullptr,nullptr);
+        if(button.id==kUpdate) update_button=control;
+        if(button.id==kAppUpdate) app_update_button=control;
       }
-      learning_checkbox = CreateWindowW(L"BUTTON", L"候補の選択を学習する", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,
-          54,558,340,30,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLearning)),nullptr,nullptr);
-      auto clear_learning = CreateWindowW(L"BUTTON", L"学習履歴を削除", WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
-          502,558,166,34,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearLearning)),nullptr,nullptr);
+      learning_checkbox=CreateWindowW(L"BUTTON",L"候補の選択を学習する",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_AUTOCHECKBOX,
+          36,455,300,32,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLearning)),nullptr,nullptr);
+      auto clear_learning=CreateWindowW(L"BUTTON",L"学習履歴を削除",WS_CHILD|WS_VISIBLE|WS_TABSTOP|BS_PUSHBUTTON,
+          474,455,141,32,hwnd,reinterpret_cast<HMENU>(static_cast<INT_PTR>(kClearLearning)),nullptr,nullptr);
       SendMessageW(learning_checkbox,WM_SETFONT,reinterpret_cast<WPARAM>(body_font),TRUE);
       SendMessageW(clear_learning,WM_SETFONT,reinterpret_cast<WPARAM>(body_font),TRUE);
       ime::LearningStore learning(user_dir);
+      ShowModel(learning.model());
       SendMessageW(learning_checkbox,BM_SETCHECK,learning.enabled()?BST_CHECKED:BST_UNCHECKED,0);
       RefreshStatus();
       return 0;
     }
+    case WM_CTLCOLORSTATIC:
+      if (reinterpret_cast<HWND>(lparam)==model_label || reinterpret_cast<HWND>(lparam)==model_detail ||
+          reinterpret_cast<HWND>(lparam)==learning_checkbox) {
+        auto dc=reinterpret_cast<HDC>(wparam);
+        SetBkColor(dc,RGB(255,255,255)); SetTextColor(dc,Ink());
+        return reinterpret_cast<LRESULT>(GetStockObject(WHITE_BRUSH));
+      }
+      break;
+    case WM_SETFOCUS:
+      if (model_combo) SetFocus(model_combo);
+      return 0;
     case WM_ERASEBKGND: return 1;
     case WM_PAINT: {
       PAINTSTRUCT paint{}; HDC dc = BeginPaint(hwnd,&paint);
@@ -313,6 +336,17 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) 
         case kUpdate: UpdateDictionary(); break;
         case kAbout: About(); break;
         case kAppUpdate: CheckAppUpdate(); break;
+        case kModel: {
+          if (HIWORD(wparam) != CBN_SELCHANGE) break;
+          ime::LearningStore settings(user_dir);
+          const auto selected = SendMessageW(model_combo,CB_GETCURSEL,0,0);
+          if (selected < 0 || selected >= static_cast<LRESULT>(std::size(models))) break;
+          if (!settings.SetModel(models[selected].id)) {
+            ShowModel(settings.model());
+            MessageBoxW(hwnd,L"変換モデルの設定を保存できませんでした。",L"Yomitsugu",MB_ICONERROR);
+          } else ShowModel(models[selected].id);
+          break;
+        }
         case kLearning: {
           ime::LearningStore learning(user_dir);
           const bool enabled = SendMessageW(learning_checkbox,BM_GETCHECK,0,0)==BST_CHECKED;
@@ -357,19 +391,14 @@ LRESULT CALLBACK WndProc(HWND hwnd, UINT message, WPARAM wparam, LPARAM lparam) 
 }
 }  // namespace
 
-int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
-  base = OwnDirectory();
-  PWSTR local = nullptr;
-  if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &local))) return 1;
-  user_dir = std::filesystem::path(local) / L"ImeMixed";
-  CoTaskMemFree(local);
+int RunSettings(HINSTANCE instance, PWSTR command, int show) {
   WNDCLASSW cls{}; cls.lpfnWndProc = WndProc; cls.hInstance = instance;
   cls.lpszClassName = L"ImeMixedSettingsWindow"; cls.hCursor = LoadCursorW(nullptr, IDC_ARROW);
   cls.hIcon = LoadIconW(instance, MAKEINTRESOURCEW(101));
   cls.hbrBackground = nullptr;
   if (!RegisterClassW(&cls)) return 2;
   window = CreateWindowW(cls.lpszClassName, L"Yomitsugu - 設定と辞書", WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX,
-                         CW_USEDEFAULT, CW_USEDEFAULT, 740, 745, nullptr, nullptr, instance, nullptr);
+                         CW_USEDEFAULT, CW_USEDEFAULT, 672, 585, nullptr, nullptr, instance, nullptr);
   if (!window) return 3;
   ShowWindow(window, show); UpdateWindow(window);
   if (wcscmp(command, L"--dictionary") == 0) OpenDictionary();
@@ -378,6 +407,17 @@ int WINAPI wWinMain(HINSTANCE instance, HINSTANCE, PWSTR command, int show) {
   else if (wcscmp(command, L"--about") == 0) About();
   else if (wcscmp(command, L"--app-update") == 0) CheckAppUpdate();
   MSG msg{};
-  while (GetMessageW(&msg, nullptr, 0, 0) > 0) { TranslateMessage(&msg); DispatchMessageW(&msg); }
+  while (GetMessageW(&msg,nullptr,0,0)>0) {
+    if ((msg.hwnd==window || IsChild(window,msg.hwnd)) && IsDialogMessageW(window,&msg)) continue;
+    TranslateMessage(&msg); DispatchMessageW(&msg);
+  }
   return static_cast<int>(msg.wParam);
+}
+int WINAPI wWinMain(HINSTANCE instance,HINSTANCE,PWSTR command,int show) {
+  base=OwnDirectory();
+  PWSTR local=nullptr;
+  if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData,0,nullptr,&local))) return 1;
+  user_dir=std::filesystem::path(local)/L"ImeMixed";
+  CoTaskMemFree(local);
+  return RunSettings(instance,command,show);
 }

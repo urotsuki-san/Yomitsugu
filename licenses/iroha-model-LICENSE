@@ -1,0 +1,16 @@
+iroha kana-kanji conversion model weights (iroha-kkc-v1)
+Copyright (c) 2026 Tetsuaki Baba
+
+These model weights are licensed under the Creative Commons
+Attribution-ShareAlike 4.0 International License (CC BY-SA 4.0).
+https://creativecommons.org/licenses/by-sa/4.0/
+
+The model was trained from scratch on:
+  zenz-v2.5-dataset by Keita Miwa
+  https://huggingface.co/datasets/Miwa-Keita/zenz-v2.5-dataset
+  Licensed under CC BY-SA 4.0. The subset derived from llm-jp-corpus-v3 is
+  covered by ODC-BY and the Common Crawl terms of use.
+The dataset itself is not redistributed with the model.
+
+Note: the iroha application itself is MIT licensed. Only these weights are
+CC BY-SA 4.0, which is why they are distributed separately from the app.
