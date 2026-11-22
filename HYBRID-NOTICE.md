@@ -1,8 +1,8 @@
-# 変換比較版の出典
+# ハイブリッド変換の出典
 
-Yomitsuguの独自コードはMITです。元のランタイム・辞書の著作権表示は licenses/Yomitsugu-THIRD-PARTY.md および licenses/ 以下にあります。比較ホストには以下のコードと重みを使用しました。
+Yomitsuguの独自コードはMITです。元のランタイム・辞書の著作権表示は licenses/Yomitsugu-THIRD-PARTY.md および licenses/ 以下にあります。変換エンジンで使うコードとモデルの出典を記します。
 
-- [iroha](https://github.com/TetsuakiBaba/iroha/tree/b6e018189e8f4e006d0d7749552c2fa7a7f62852) のWindows変換器を使用。著作権者 Tetsuaki Baba、MIT。Yomitsugu側でJinen用プロンプトの正規化と文脈長、物理バッチサイズ、候補探索と採点を変更しました。改変を含むコードはソースZIPの `Yomitsugu/native/src/hybrid/zenz_engine.cpp`、`router.cpp`、`native/third_party/iroha` にあります。
+- [iroha](https://github.com/TetsuakiBaba/iroha/tree/b6e018189e8f4e006d0d7749552c2fa7a7f62852) のWindows変換器を使用。著作権者 Tetsuaki Baba、MIT。Yomitsugu側でJinen用プロンプトの正規化と文脈長、物理バッチサイズ、候補探索と採点を変更しました。改変を含むコードはリポジトリの `native/src/hybrid/` と `native/third_party/iroha/` にあります。
 - [llama.cpp](https://github.com/ggml-org/llama.cpp/tree/57291f2644af8c9df0dd8d44395881c5bdcf0ecd) のCPU静的ビルド、MIT。irohaが配布するT5交差注意の再利用・Zenz用トークナイザーのパッチを適用しました。
 - Zenz v3.2 small は Miwa-Keita が配布する Q5_K_M です。固定したリポジトリのライセンス表記は Apache-2.0 です。本文は `licenses/zenzai-model-LICENSE` にあります。[配布元のモデルカード](https://huggingface.co/Miwa-Keita/zenz-v3.2-small-gguf/blob/c67e03e07d215c869f591b274c1631170d3e11fe/README.md)
 - [Zenz v3.2 xsmall](https://huggingface.co/Miwa-Keita/zenz-v3.2-xsmall-gguf/tree/42cab8392a3727d1cf80932cf2275b7d523fbb9f)、Miwa-Keita、Q5_K_M、CC BY-SA 4.0。

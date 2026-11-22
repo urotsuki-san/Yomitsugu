@@ -49,7 +49,10 @@ jobs:
           if ($LASTEXITCODE -ne 0) { throw "Hybrid regression failed" }
       - name: Dictionary update history
         shell: pwsh
-        run: scripts/ci/test_dictionary_update.ps1
+        run: |
+          python scripts/ci/dictionary_history_fixture.py native/assets/public_dictionary.tsv audit/history-sources
+          if ($LASTEXITCODE -ne 0) { throw "Could not prepare dictionary history test" }
+          scripts/ci/test_dictionary_update.ps1 -SourceDirectory (Resolve-Path audit/history-sources)
   installer-preview:
     if: github.event_name != 'pull_request'
     needs: source-checks
